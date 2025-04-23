@@ -1,0 +1,23 @@
+import java.net.MalformedURLException;
+import java.net.URL;
+
+public class RobotChecker {
+	private static String BOT_AGENT = "ndry/1.0";
+	
+	public static boolean isUrlAllowed(String urlToBeChecked) {
+		// needed form  protocol + "://" + host + ":" + port;
+		URL url;
+		try {
+			url = new URL(urlToBeChecked);
+			String protocol = url.getProtocol();
+			String host = url.getHost();
+			int port = url.getPort();
+			port = port == -1? url.getDefaultPort():port;
+			
+			
+		} catch (MalformedURLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+}

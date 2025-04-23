@@ -1,0 +1,147 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- =============================================== -->
+    <!-- DEFINE YOUR PROJECT COORDINATES (CHANGE THESE!) -->
+    <!-- =============================================== -->
+    <groupId>com.yourcompany.crawler</groupId>
+    <artifactId>web-crawler-app</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <!-- Optional: Project Name -->
+    <name>Web Crawler Application</name>
+
+    <!-- =============================================== -->
+    <!-- PROPERTIES (Set Your Java Version)             -->
+    <!-- =============================================== -->
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Set the Java version you are using -->
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <!-- Dependency versions -->
+        <jsoup.version>1.17.2</jsoup.version>
+        <!-- IMPORTANT: Using latest stable driver. Verify if 5.1.1 is correct for your needs -->
+        <mongodb.driver.sync.version>5.1.1</mongodb.driver.sync.version>
+        <!-- Google Robots Parser Version -->
+        <robots.parser.version>1.0.1</robots.parser.version> <!-- Check Maven Central for latest -->
+    </properties>
+
+    <!-- =============================================== -->
+    <!-- DEPENDENCIES                                   -->
+    <!-- =============================================== -->
+    <dependencies>
+
+        <!-- Jsoup HTML Parser -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>${jsoup.version}</version>
+        </dependency>
+
+        <!-- MongoDB Synchronous Driver -->
+        <dependency>
+            <groupId>org.mongodb</groupId>
+            <artifactId>mongodb-driver-sync</artifactId>
+            <version>${mongodb.driver.sync.version}</version>
+        </dependency>
+
+        <!-- Google Robots.txt Parser -->
+        <dependency>
+            <groupId>com.google.code.findbugs</groupId> <!-- Yes, this unusual group ID is correct -->
+            <artifactId>robots-txt-parser</artifactId>
+            <version>1.0.1</version>
+        </dependency>
+
+
+        <!-- OPTIONAL: Add a logging framework (Recommended) -->
+        <!-- SLF4j API -->
+        <!--
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.7</version>
+        </dependency>
+        -->
+        <!-- Simple backend for SLF4j (change if you prefer Logback, Log4j2, etc.) -->
+        <!--
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.7</version>
+        </dependency>
+        -->
+
+        <!-- OPTIONAL: JUnit 5 for testing -->
+        <!--
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+        -->
+
+    </dependencies>
+
+    <!-- =============================================== -->
+    <!-- BUILD CONFIGURATION (Optional Plugins)         -->
+    <!-- =============================================== -->
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin (Ensures correct Java version is used) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version> <!-- Use a recent version -->
+                <configuration>
+                    <source>${maven.compiler.source}</source>
+                    <target>${maven.compiler.target}</target>
+                </configuration>
+            </plugin>
+
+            <!-- OPTIONAL: Maven Assembly Plugin (Creates a runnable JAR with dependencies) -->
+            <!-- Uncomment and configure if you need a single executable JAR -->
+            <!--
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                             -->
+                            <!-- CHANGE THIS to the fully qualified name of your main class -->
+                            <!-- <mainClass>com.yourcompany.crawler.YourMainClassName</mainClass>
+                        </manifest>
+                    </archive>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                </configuration>
+                 <executions>
+                    <execution>
+                        <id>make-assembly</id> -->
+                        <!-- Bind to the package phase -->
+                        <!-- <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            -->
+        </plugins>
+    </build>
+
+</project>
