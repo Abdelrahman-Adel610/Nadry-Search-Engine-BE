@@ -1,5 +1,7 @@
+import java.io.IOException;
+
 public class WebCrawlerMain {
-	public static void main(String []args) {
+	public static void main(String []args) throws IOException {
 //		String url = "https://www.york.ac.uk/teaching/cws/wws/webpage1.html";
 		String url = "https://en.wikipedia.org/wiki/Wiki";
 		WebCrawler crawler = new WebCrawler(url);
