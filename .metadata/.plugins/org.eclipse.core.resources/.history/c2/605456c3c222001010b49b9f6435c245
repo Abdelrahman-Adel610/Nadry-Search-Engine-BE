@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sample Page for Indexing</title>
+    <meta name="description" content="This is hi a sample HTML file used for indexing and testing.">
+</head>
+<body>
+    <header>
+        <h1>Welcome to the cc Test hi Page</h1>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="about.html">me kk About Us</a></li>
+            <li><a href="/contact">Contact</a></li>
+        </ul>
+    </nav>
+    <main>
+        <p>Thi aref aref hi hi his file includes various types of content, like links, emails, and numbers.</p>
+        <p>Email: test@example.com | Number: 123.45 | Price: $19.99</p>
+        <p>Visit <a href="https://example.com">our main site</a> for more info.</p>
+    </main>
+    <aside class="sidebar">
+        <p>This is a sidebar. It should be removed.</p>
+    </aside>
+    <footer>
+        <p>© 2025 Example Inc.</p>
+    </footer>
+    <script>
+        console.log("This should be stripped.");
+    </script>
+    <style>
+        body { font-family: Arial; }
+    </style>
+</body>
+</html>

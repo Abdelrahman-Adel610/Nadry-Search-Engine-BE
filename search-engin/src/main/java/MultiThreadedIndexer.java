@@ -2,22 +2,35 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.*;
+
+import webCrawler.WebCrawler;
 
 public class MultiThreadedIndexer {
     public static void main(String[] args) throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(4);  // Adjust the number of threads based on your needs
 
         try {
+        	String urlSeed = "https://en.wikipedia.org/wiki/Wiki";
+//        	WebCrawler crawler = new WebCrawler(urlSeed);
+//    		crawler.start();
+    		
             // Define document path and URL
             Path filePath = Paths.get("src/main/java/test.html");
+            Path filePath2 = Paths.get("src/main/java/sample1.html");
             String url = "https://example.com/test.html";
 
             if (!Files.exists(filePath)) {
                 throw new DocumentProcessingException("File does not exist: " + filePath, null);
             }
-
+            List<Path> paths = new LinkedList<>();
+             List<String> links = new LinkedList<>();
+             paths.add(filePath);
+             paths.add(filePath2);
+             links.add(url);
+             links.add(url);
             // Initialize components
             DocumentProcessor processor = new DocumentProcessor();
             StopWordFilter stopWordFilter = new StopWordFilter();
@@ -25,9 +38,24 @@ public class MultiThreadedIndexer {
             IndexBuilder indexBuilder = new IndexBuilder(processor, tokenizer);
 
             // Build index concurrently
-            List<Path> documentPaths = Arrays.asList(filePath);
-            List<String> urls = Arrays.asList(url);
+//            List<Path> documentPaths = crawler.getPaths();
+//            List<String> urls = crawler.getLinks();
+//            List<Path> documentPaths = Arrays.asList(filePath);
+//            List<String> urls = Arrays.asList(url);
+            List<Path> documentPaths = paths;
+            List<String> urls = links;
 
+            for (String link : urls) {
+                System.out.println(link); // Added numbering
+            }
+            System.out.println("--------------------------------------");
+            for (Path path : documentPaths) {
+                // Use path.toString() to get the string representation
+                System.out.println(path.toString());
+                // Or use path.toAbsolutePath().toString() if you want the full absolute path
+                // System.out.println("  " + (count++) + ". " + path.toAbsolutePath().toString());
+            }
+            System.out.println("--------------------------------------");
             // Submit the indexing task to the executor
             CompletableFuture<Void> indexBuildingFuture = CompletableFuture.runAsync(() -> {
                 try {
@@ -65,7 +93,7 @@ public class MultiThreadedIndexer {
 
                     // Verify specific tokens in parallel
                     System.out.println("\nVerifying Specific Tokens:");
-                    String[] testTerms = {"file", "email:test@example.com", "various"};
+                    String[] testTerms = {"main","menu"};
                     Arrays.stream(testTerms).parallel().forEach(term -> {
                         List<InvertedIndex.Posting> postings = index.getPostings(term);
                         if (postings.isEmpty()) {

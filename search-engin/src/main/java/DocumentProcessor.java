@@ -39,7 +39,7 @@ public class DocumentProcessor {
             if (!Files.isRegularFile(filePath)) {
                 throw new DocumentProcessingException("File not found or not a regular file: " + filePath, null);
             }
-            if (Files.size(filePath) > 100_000) {
+            if (Files.size(filePath) > 100_000_000) {
                 throw new DocumentProcessingException("Document exceeds maximum size limit", null);
             }
             String contentType = detectContentType(filePath);
@@ -108,7 +108,7 @@ public class DocumentProcessor {
         }
 
         // Include semantic structure if available
-        List<Element> extraSections = doc.select("header, nav");
+        List<Element> extraSections = doc.select("header, nav, span, li, ul, uli");
         for (Element section : extraSections) {
             contentBuilder.append(section.text()).append(" ");
         }
