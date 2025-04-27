@@ -21,6 +21,7 @@ public class MultiThreadedIndexer {
             Path filePath = Paths.get("src/main/java/test.html");
             Path filePath2 = Paths.get("src/main/java/sample1.html");
             // Use unique URLs for each file
+            // hi aref
             String url1 = "https://example.com/test.html";
             String url2 = "https://example.com/sample1.html";
 
