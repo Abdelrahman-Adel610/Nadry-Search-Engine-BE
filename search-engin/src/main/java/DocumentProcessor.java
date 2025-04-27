@@ -20,7 +20,6 @@ import java.util.stream.Collectors;
 public class DocumentProcessor {
     private static final Logger logger = LoggerFactory.getLogger(DocumentProcessor.class);
     private final List<String> unwantedSelectors;
-    private final Tika tika;
     private final ExecutorService executorService;
 
     public DocumentProcessor() {
@@ -29,8 +28,8 @@ public class DocumentProcessor {
 
     public DocumentProcessor(List<String> unwantedSelectors) {
         this.unwantedSelectors = unwantedSelectors != null ? unwantedSelectors : Collections.emptyList();
-        this.tika = new Tika();
-        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        // Changed to cached thread pool for I/O-bound tasks
+        this.executorService = Executors.newCachedThreadPool();
     }
 
     public ProcessedDocument process(Path filePath, String url) throws DocumentProcessingException {
@@ -85,17 +84,27 @@ public class DocumentProcessor {
         }
 
         List<CompletableFuture<ProcessedDocument>> futures = new ArrayList<>();
-
         for (int i = 0; i < paths.size(); i++) {
             Path path = paths.get(i);
             String url = urls.get(i);
-            futures.add(processAsync(path, url));
+            // Enhanced error handling with exceptional completion
+            futures.add(processAsync(path, url).exceptionally(throwable -> {
+                logger.error("Failed to process {}: {}", path, throwable.getMessage());
+                return null;
+            }));
         }
 
-        return futures.stream()
+        List<ProcessedDocument> results = futures.stream()
             .map(CompletableFuture::join)
             .filter(Objects::nonNull)
             .collect(Collectors.toList());
+
+        // Log summary of processing
+        if (results.size() < paths.size()) {
+            logger.warn("Processed {}/{} documents successfully", results.size(), paths.size());
+        }
+
+        return results;
     }
 
     private String extractMainContent(Document doc) {
@@ -108,7 +117,13 @@ public class DocumentProcessor {
         }
 
         // Include semantic structure if available
-        List<Element> extraSections = doc.select("header, nav, span, li, ul, uli");
+        List<Element> extraSections = doc.select(
+            "article, section, header, footer, main, " +
+            "h1, h2, h3, h4, h5, h6, " +
+            "p, blockquote, pre, li, dt, dd, " +
+            "a[href], strong, em, cite, q, time, code, span"
+        );
+
         for (Element section : extraSections) {
             contentBuilder.append(section.text()).append(" ");
         }
@@ -122,6 +137,8 @@ public class DocumentProcessor {
     }
 
     private String detectContentType(Path filePath) throws IOException {
+        // Create new Tika instance per call to ensure thread safety
+        Tika tika = new Tika();
         return tika.detect(filePath.toFile());
     }
 
@@ -192,11 +209,14 @@ public class DocumentProcessor {
 
     public void shutdown() {
         try {
-            executorService.awaitTermination(1, TimeUnit.MINUTES);
-            executorService.shutdownNow();
+            // Improved shutdown with timeout
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
         } catch (InterruptedException e) {
             logger.error("Executor service did not terminate in time.", e);
             executorService.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 }

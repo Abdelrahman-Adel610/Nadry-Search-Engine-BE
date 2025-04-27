@@ -1,5 +1,3 @@
-
-
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,23 +32,22 @@ public class InvertedIndex {
     public void addTerm(String term, String docId, int position, FieldType fieldType) {
         index.compute(term, (key, postings) -> {
             if (postings == null) {
-                postings = new ArrayList<>();
+                // Use synchronized list for thread safety
+                postings = Collections.synchronizedList(new ArrayList<>());
             }
-            
-            // Check if the document already has this term
-            boolean found = false;
-            for (Posting posting : postings) {
-                if (posting.getDocId().equals(docId)) {
-                    posting.addPosition(position, fieldType);
-                    found = true;
-                    break;
+            synchronized (postings) {
+                boolean found = false;
+                for (Posting posting : postings) {
+                    if (posting.getDocId().equals(docId)) {
+                        posting.addPosition(position, fieldType);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    postings.add(new Posting(docId, position, fieldType));
                 }
             }
-            
-            if (!found) {
-                postings.add(new Posting(docId, position, fieldType));
-            }
-            
             return postings;
         });
     }
@@ -149,4 +146,3 @@ public class InvertedIndex {
         }
     }
 }
-

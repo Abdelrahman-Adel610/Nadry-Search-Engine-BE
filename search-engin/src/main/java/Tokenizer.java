@@ -1,5 +1,3 @@
-
-
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -59,11 +57,14 @@ public class Tokenizer {
             return token;
         }
         
-        stemmer.setCurrent(token);
-        stemmer.stem();
-        String stemmed = stemmer.getCurrent();
-        logger.debug("Stemmed {} to {}", token, stemmed);
-        return stemmed;
+        // Synchronize access to stemmer for thread safety
+        synchronized (stemmer) {
+            stemmer.setCurrent(token);
+            stemmer.stem();
+            String stemmed = stemmer.getCurrent();
+            logger.debug("Stemmed {} to {}", token, stemmed);
+            return stemmed;
+        }
     }
     
     private List<String> extractSpecialTokens(String text) {

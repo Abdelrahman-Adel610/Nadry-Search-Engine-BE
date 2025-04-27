@@ -13,53 +13,50 @@ public class MultiThreadedIndexer {
         ExecutorService executor = Executors.newFixedThreadPool(4);  // Adjust the number of threads based on your needs
 
         try {
-        	String urlSeed = "https://en.wikipedia.org/wiki/Wiki";
-//        	WebCrawler crawler = new WebCrawler(urlSeed);
-//    		crawler.start();
-    		
-            // Define document path and URL
+            String urlSeed = "https://en.wikipedia.org/wiki/Wiki";
+            //WebCrawler crawler = new WebCrawler(urlSeed);
+            //crawler.start();
+            
+            // Define document paths and URLs
             Path filePath = Paths.get("src/main/java/test.html");
             Path filePath2 = Paths.get("src/main/java/sample1.html");
-            String url = "https://example.com/test.html";
+            // Use unique URLs for each file
+            String url1 = "https://example.com/test.html";
+            String url2 = "https://example.com/sample1.html";
 
-            if (!Files.exists(filePath)) {
-                throw new DocumentProcessingException("File does not exist: " + filePath, null);
+            if (!Files.exists(filePath) || !Files.exists(filePath2)) {
+                throw new DocumentProcessingException("One or more files do not exist", null);
             }
+
             List<Path> paths = new LinkedList<>();
-             List<String> links = new LinkedList<>();
-             paths.add(filePath);
-             paths.add(filePath2);
-             links.add(url);
-             links.add(url);
+            List<String> links = new LinkedList<>();
+            paths.add(filePath);
+            paths.add(filePath2);
+            links.add(url1);
+            links.add(url2);
+
             // Initialize components
             DocumentProcessor processor = new DocumentProcessor();
             StopWordFilter stopWordFilter = new StopWordFilter();
             Tokenizer tokenizer = new Tokenizer(stopWordFilter);
             IndexBuilder indexBuilder = new IndexBuilder(processor, tokenizer);
 
-            // Build index concurrently
-//            List<Path> documentPaths = crawler.getPaths();
-//            List<String> urls = crawler.getLinks();
-//            List<Path> documentPaths = Arrays.asList(filePath);
-//            List<String> urls = Arrays.asList(url);
-            List<Path> documentPaths = paths;
-            List<String> urls = links;
-
-            for (String link : urls) {
-                System.out.println(link); // Added numbering
+            // Print input for debugging
+            System.out.println("URLs:");
+            for (String link : links) {
+                System.out.println(link);
             }
             System.out.println("--------------------------------------");
-            for (Path path : documentPaths) {
-                // Use path.toString() to get the string representation
+            System.out.println("Document Paths:");
+            for (Path path : paths) {
                 System.out.println(path.toString());
-                // Or use path.toAbsolutePath().toString() if you want the full absolute path
-                // System.out.println("  " + (count++) + ". " + path.toAbsolutePath().toString());
             }
             System.out.println("--------------------------------------");
+
             // Submit the indexing task to the executor
             CompletableFuture<Void> indexBuildingFuture = CompletableFuture.runAsync(() -> {
                 try {
-                    indexBuilder.buildIndex(documentPaths, urls);
+                    indexBuilder.buildIndex(paths, links);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -76,8 +73,8 @@ public class MultiThreadedIndexer {
                     System.out.println("\nVerifying InvertedIndex Contents:");
                     System.out.println("Total unique terms: " + index.size());
 
-                    // Print all terms and their postings in parallel
-                    index.getTerms().parallelStream().forEach(term -> {
+                    // Print all terms and their postings sequentially to avoid console interleaving
+                    index.getTerms().stream().forEach(term -> {
                         List<InvertedIndex.Posting> postings = index.getPostings(term);
                         System.out.println("Term: " + term);
                         for (InvertedIndex.Posting posting : postings) {
@@ -91,10 +88,10 @@ public class MultiThreadedIndexer {
                         }
                     });
 
-                    // Verify specific tokens in parallel
+                    // Verify specific tokens sequentially
                     System.out.println("\nVerifying Specific Tokens:");
-                    String[] testTerms = {"main","menu"};
-                    Arrays.stream(testTerms).parallel().forEach(term -> {
+                    String[] testTerms = {"main","menu" , "aref"};
+                    for (String term : testTerms) {
                         List<InvertedIndex.Posting> postings = index.getPostings(term);
                         if (postings.isEmpty()) {
                             System.out.println("ERROR: Term '" + term + "' not found in index");
@@ -104,7 +101,7 @@ public class MultiThreadedIndexer {
                                 System.out.println("  DocID: " + posting.getDocId() + ", Frequency: " + posting.getFrequency());
                             });
                         }
-                    });
+                    }
 
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -119,7 +116,14 @@ public class MultiThreadedIndexer {
             e.printStackTrace();
         } finally {
             // Shut down the executor
-            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

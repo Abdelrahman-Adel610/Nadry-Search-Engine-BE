@@ -1,6 +1,3 @@
-
-
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -89,9 +86,14 @@ public class IndexBuilder {
         // Shutdown executor and wait for completion
         executor.shutdown();
         try {
-            executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+            // Improved shutdown with timeout
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+                System.err.println("Index building timed out, some tasks may not have completed");
+            }
         } catch (InterruptedException e) {
             System.err.println("Index building interrupted: " + e.getMessage());
+            executor.shutdownNow();
             Thread.currentThread().interrupt();
         }
         
