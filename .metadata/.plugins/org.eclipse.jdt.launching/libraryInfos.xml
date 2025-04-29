@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <libraryInfos>
     <libraryInfo home="C:\Program Files\Eclipse Adoptium\jdk-11.0.26.4-hotspot" version="11.0.26"/>
+    <libraryInfo home="/home/salah/.p2/pool/plugins/org.eclipse.justj.openjdk.hotspot.jre.full.linux.x86_64_23.0.2.v20250131-0604" version="23.0.2">
+        <bootpath>
+            <entry path="null"/>
+        </bootpath>
+        <extensionDirs>
+            <entry path="null"/>
+        </extensionDirs>
+        <endorsedDirs>
+            <entry path="null"/>
+        </endorsedDirs>
+    </libraryInfo>
+    <libraryInfo home="/home/salah/.p2/pool/plugins/org.eclipse.justj.openjdk.hotspot.jre.full.linux.x86_64_23.0.2.v20250131-0604/jre" version="23.0.2"/>
+    <libraryInfo home="/usr/lib/jvm/jdk-23" version="23.0.2"/>
+    <libraryInfo home="/usr/lib/jvm/java-17-openjdk-amd64" version="17.0.14"/>
+    <libraryInfo home="/usr/lib/jvm/java-21-openjdk-amd64" version="21.0.6"/>
 </libraryInfos>
