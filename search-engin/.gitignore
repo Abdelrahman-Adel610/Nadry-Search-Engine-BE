@@ -1,1 +1,22 @@
-node_modules/
+
+# Node modules
+node_modules
+
+# Build files
+/build
+/dist
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# IDE files
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db

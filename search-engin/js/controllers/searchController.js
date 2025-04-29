@@ -1,25 +1,34 @@
 const express = require("express");
-const { dummyResults } = require("./data.js");
-const { supabase } = require("./supabase.js");
+const { dummyResults } = require("../models/data.js");
+const { supabase } = require("../models/supabase.js");
+const { tokenize } = require("./tokenizer-bridge.js");
+const SearchService = require("../services/SearchService.js");
 const { v4: uuidv4 } = require("uuid");
-const router = express.Router();
+
+// Create a search service instance, passing the tokenizer
+const searchService = new SearchService({ tokenize });
 
 /**
  * Basic search endpoint
- * @route GET /search
+ * @route GET /api/search
  */
-router.get("/search", async (req, res) => {
+const getSearch = async (req, res) => {
   try {
-    const { query, page, limit = 20 } = req.query;
-
+    const { query, page = 1, limit = 20 } = req.query;
     if (!query) {
       return res.status(400).json({
         success: false,
         message: "Search query is required",
       });
     }
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 20;
 
-    // const results = await SearchService.search(query, parseInt(page), parseInt(limit));
+    // Call the search service instance method
+    const results = await searchService.search(query, pageNum, limitNum);
+
+    // // Log the tokens for debugging
+    console.log(`Search tokenized "${query}" into:`, results.tokens);
 
     return res.status(200).json({
       success: true,
@@ -33,29 +42,34 @@ router.get("/search", async (req, res) => {
       message: "An error occurred during search",
     });
   }
-});
+};
 
 /**
  * Advanced search with filters
- * @route POST /search/advanced
+ * @route POST /api/search/advanced
  */
-router.post("/advanced", async (req, res) => {
+const postAdvancedSearch = async (req, res) => {
   try {
     const { query, filters, page = 1, limit = 10 } = req.body;
-
     if (!query) {
       return res.status(400).json({
         success: false,
         message: "Search query is required",
       });
     }
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
 
-    const results = await SearchService.advancedSearch(
+    // Call the search service instance method
+    const results = await searchService.advancedSearch(
       query,
       filters,
-      parseInt(page),
-      parseInt(limit)
+      pageNum,
+      limitNum
     );
+
+    // Log the tokens for debugging
+    console.log(`Advanced search tokenized "${query}" into:`, results.tokens);
 
     return res.status(200).json({
       success: true,
@@ -68,50 +82,73 @@ router.post("/advanced", async (req, res) => {
       message: "An error occurred during advanced search",
     });
   }
-});
+};
 
 /**
  * Get search suggestions
- * @route GET /search/suggestions
+ * @route GET /api/search/suggestions
  */
-router.get("/suggestions", async (req, res) => {
+const getSuggestions = async (req, res) => {
   try {
     const { query, limit = 5 } = req.query;
-
     if (!query) {
       return res.status(400).json({
         success: false,
         message: "Query prefix is required",
       });
     }
-    const { data, error } = await supabase
-      .from("Suggestions")
-      .select("Suggestions")
-      .ilike("Suggestions", `%${query}%`)
-      .limit(parseInt(limit));
-    console.log(data);
+    const limitNum = parseInt(limit, 10) || 5;
 
-    if (error) {
-      return res.status(400).json({
+    // Database lookup only, no fallback
+    try {
+      const { data, error } = await supabase
+        .from("Suggestions")
+        .select("Suggestions")
+        .ilike("Suggestions", `%${query}%`)
+        .limit(limitNum);
+
+      console.log("Supabase suggestions data:", data);
+
+      if (error) {
+        console.error("Supabase suggestions error:", error);
+        throw error;
+      }
+
+      // Return the data, even if empty
+      const suggestions =
+        data && data.length > 0 ? data.map((item) => item.Suggestions) : [];
+
+      return res.status(200).json({
+        success: true,
+        data: suggestions,
+        source: "database",
+      });
+    } catch (dbError) {
+      console.error(
+        "Database error when fetching suggestions:",
+        dbError.message
+      );
+      return res.status(500).json({
         success: false,
-        message: error.message || error.data,
+        message: "Error accessing suggestion database",
+        error: dbError.message,
       });
     }
-    const suggestions = data.map((item) => item.Suggestions);
-    return res.status(200).json({
-      success: true,
-      data: suggestions,
-    });
   } catch (error) {
     console.error("Suggestions error:", error);
     return res.status(500).json({
       success: false,
       message: "An error occurred while fetching suggestions",
+      error: error.message,
     });
   }
-});
+};
 
-router.post("/save-search", async (req, res) => {
+/**
+ * Save search query to suggestions table
+ * @route POST /api/search/save-search
+ */
+const saveSearch = async (req, res) => {
   try {
     const { query } = req.body; // Get the query from request body
 
@@ -162,6 +199,11 @@ router.post("/save-search", async (req, res) => {
       error: error.message,
     });
   }
-});
+};
 
-module.exports = router;
+module.exports = {
+  getSearch,
+  postAdvancedSearch,
+  getSuggestions,
+  saveSearch,
+};
