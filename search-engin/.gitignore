@@ -137,3 +137,5 @@ tmp/
 .env.local
 .jenv-version
 .java-version
+
+.metadata/*
