@@ -1,0 +1,16 @@
+package webCrawler;
+import java.io.IOException;
+import java.util.LinkedList;
+
+public class WebCrawlerMain {
+	public static void main(String []args) throws IOException {
+//		String url = "https://www.york.ac.uk/teaching/cws/wws/webpage1.html";
+		String url = "https://en.wikipedia.org/wiki/Wiki";
+		LinkedList<String> seedLinks = new LinkedList<String>();
+		seedLinks.add("https://en.wikipedia.org/wiki/Wiki");
+		MongoJava database = new MongoJava("mongodb://localhost:27017/","Ndry");
+		RobotChecker robotChecker = new RobotChecker();
+		WebCrawler crawler = new WebCrawler(url);
+		crawler.start();
+	}
+}

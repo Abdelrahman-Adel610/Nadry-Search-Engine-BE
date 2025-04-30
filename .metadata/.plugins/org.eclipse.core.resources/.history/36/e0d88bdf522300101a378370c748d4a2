@@ -1,0 +1,180 @@
+package webCrawler;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Date;
+
+import com.mongodb.client.*;
+import com.mongodb.client.model.*;
+import org.bson.Document;
+
+public class MongoJava {
+	private static final String VISITED_URLS_COLLECTION = "visited_urls";
+    private static final String QUEUED_URLS_COLLECTION = "queued_urls";
+    private static final String COMPACT_STRING_COLLECTION = "compact_string";
+    private static final String CRAWLED_COUNT_COLLECTION = "crawled_count";
+    
+    private final MongoClient mongoClient;
+    private final MongoDatabase database;
+    
+    //	Cache to be used while being Crawling-active
+    private Set<String> visitedUrlsCache = new HashSet<String>();
+    private Set<String> compactStringCache = new HashSet<String>();
+    
+    public MongoJava(String connectionString, String dbName) {
+    	this.mongoClient = MongoClients.create(connectionString);
+        this.database = mongoClient.getDatabase(dbName);
+        initCollections();
+        loadCache();
+        
+    }
+    
+    private void initCollections() {
+    	MongoCollection<Document> visitedCollection = database.getCollection(VISITED_URLS_COLLECTION);
+    	MongoCollection<Document> queuedCollection = database.getCollection(QUEUED_URLS_COLLECTION);
+    	MongoCollection<Document> compactCollection = database.getCollection(COMPACT_STRING_COLLECTION);
+    	MongoCollection<Document> countCollection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+    	System.out.println("Collections got initialized");
+    }
+    
+    private void loadCache() {
+    	// Load visited URLs into cache
+        MongoCollection<Document> visitedColl = database.getCollection(VISITED_URLS_COLLECTION);
+        visitedUrlsCache.clear(); // Clear cache before loading
+        MongoCursor<Document> cursor = visitedColl.find().projection(Projections.include("_id")).iterator();
+            while (cursor.hasNext()) {
+                visitedUrlsCache.add(cursor.next().getString("_id"));
+            }
+
+        System.out.println("Loaded " + visitedUrlsCache.size() + " visited URLs from MongoDB.");
+
+        // Load signatures into cache
+        MongoCollection<Document> sigsColl = database.getCollection(COMPACT_STRING_COLLECTION);
+        compactStringCache.clear(); // Clear cache before loading
+        cursor = sigsColl.find().projection(Projections.include("_id")).iterator();
+            while (cursor.hasNext()) {
+            	compactStringCache.add(cursor.next().getString("_id"));
+            }
+        
+        System.out.println("Loaded " + compactStringCache.size() + " Compact Strings from MongoDB.");
+
+        // Check queued size
+        long queuedSize = database.getCollection(QUEUED_URLS_COLLECTION).countDocuments();
+        System.out.println("Queued urls size in MongoDB: " + queuedSize);
+    }
+    
+    public boolean isVisited(String url) {
+    	return visitedUrlsCache.contains(url);
+    }
+    
+    public boolean hasCompactString(String url) {
+    	return compactStringCache.contains(url);
+    }
+    
+    public void markVisited(String url) {
+    	
+        boolean addedToCache = visitedUrlsCache.add(url);
+        if (addedToCache) { 
+            try {
+                MongoCollection<Document> collection = database.getCollection(VISITED_URLS_COLLECTION);
+                collection.updateOne(
+                        Filters.eq("_id", url),
+                        Updates.set("_id", url),
+                        new UpdateOptions().upsert(true)
+                );
+//                System.out.println(addedToCache);
+            } catch (Exception e) {
+                 System.err.println("Error saving visited URL " + url + " to MongoDB: " + e.getMessage());
+                 visitedUrlsCache.remove(url); // rollback cache on DB error
+            } 
+        }
+    }
+
+    public void addCompactString(String cs) {
+        boolean addedToCache = compactStringCache.add(cs);
+
+        if (addedToCache) {
+            try {
+                MongoCollection<Document> collection = database.getCollection(COMPACT_STRING_COLLECTION);
+                collection.updateOne(
+                        Filters.eq("_id", cs),	// find the _id that is equal to cs
+                        Updates.set("_id", cs),	// update that found _id (if doesn't exist,it'd be useful)
+                        new UpdateOptions().upsert(true)	// if doesn't exist, create one
+                );
+            } catch (Exception e) {
+                 System.err.println("Error saving Compact String " + cs + " to MongoDB: " + e.getMessage());
+                 compactStringCache.remove(cs);	// rollback cache on DB error
+            }
+        }
+    }
+
+    public void enqueueUrl(String url) {
+        try {
+             MongoCollection<Document> collection = database.getCollection(QUEUED_URLS_COLLECTION);
+             collection.updateOne(
+                     Filters.eq("url", url),	
+                     Updates.combine(	//	To make multiple updated operations
+                         Updates.setOnInsert("url", url),
+                         Updates.setOnInsert("addedTimestamp", new Date())
+                     ),
+                     new UpdateOptions().upsert(true)
+             );
+        } catch (Exception e) {
+             System.err.println("Error enqueuing URL " + url + " to MongoDB: " + e.getMessage());
+        } 
+    }
+
+    public String dequeueUrl() {
+        try {
+            MongoCollection<Document> collection = database.getCollection(QUEUED_URLS_COLLECTION);
+            Document dequeuedDoc = collection.findOneAndDelete(
+                    new Document(), // Empty filter
+                    new FindOneAndDeleteOptions().sort(Sorts.ascending("addedTimestamp"))
+            );
+            return (dequeuedDoc != null) ? dequeuedDoc.getString("url") : null;
+        } catch (Exception e) {
+             System.err.println("Error dequeuing URL from MongoDB: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    public int getCrawledCount() {
+    	try {
+    		 MongoCollection<Document> collection = database.getCollection("");
+    		 Document counterDoc = collection.find(Filters.eq("_id", "page_counter")).first();
+    		 return counterDoc.getInteger("count", 0); // Default to 0 if field not found/not 	 	
+    	}catch(Exception e) {
+    		e.printStackTrace();
+    		return -1;
+    	}
+    }
+    public boolean updateCrawledCount() {
+    	try {
+   		 MongoCollection<Document> collection = database.getCollection("");
+   		 collection.updateOne(Filters.eq("_id", "page_counter"), new Document("$set", new Document("count", pageCount)));
+
+   		 return true; 	 	
+   	}catch(Exception e) {
+   		e.printStackTrace();
+   		return false;
+   	}
+    }
+
+    public boolean isQueueEmpty() {
+        try {
+            MongoCollection<Document> collection = database.getCollection(QUEUED_URLS_COLLECTION);
+            return collection.countDocuments() == 0;
+        } catch (Exception e) {
+             System.err.println("Error checking MongoDB queue empty: " + e.getMessage());
+            return true; 
+        }
+    }
+
+    // Call this when the application is shutting down
+    public void close() {
+        if (mongoClient != null) {
+            mongoClient.close();
+            System.out.println("MongoDB connection closed.");
+        }
+    }
+ 
+}

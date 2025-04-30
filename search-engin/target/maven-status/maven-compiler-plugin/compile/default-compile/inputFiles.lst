@@ -1,16 +1,16 @@
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/TokenizerWrapper.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/webCrawler/WebCrawler.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/StopWordFilter.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/MultiThreadedIndexer.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/testIndexer.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/webCrawler/RobotChecker.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/IndexBuilder.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/IndexerConfig.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/DocumentProcessor.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/Tokenizer.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/DocumentProcessingException.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/webCrawler/WebCrawlerMain.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/InvertedIndex.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/webCrawler/MongoJava.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/MinimalTokenizer.java
-/mnt/mydrive/College/2nd_Year/2nd_Term/APT/Project/be/Nadry-Search-Engine-BE/search-engin/src/main/java/ProcessedDocument.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\ProcessedDocument.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\MultiThreadedIndexer.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\IndexBuilder.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\TokenizerWrapper.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\webCrawler\WebCrawlerMain.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\DocumentProcessor.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\IndexerConfig.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\testIndexer.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\webCrawler\RobotChecker.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\webCrawler\WebCrawler.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\Tokenizer.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\MinimalTokenizer.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\webCrawler\MongoJava.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\InvertedIndex.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\DocumentProcessingException.java
+D:\faculty stuff\2nd year\2nd term\projects\Ndry search engin\search-engin\src\main\java\StopWordFilter.java
