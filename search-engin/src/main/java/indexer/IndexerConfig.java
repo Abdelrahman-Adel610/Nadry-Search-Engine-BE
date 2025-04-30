@@ -1,6 +1,7 @@
 package indexer;
 
 public class IndexerConfig {
+
 	//static private String  connectionString = "mongodb+srv://salahmostafa3060:Oq7Y8AnTYgoOZcLg@cluster0.dcwx4lg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 	
 	

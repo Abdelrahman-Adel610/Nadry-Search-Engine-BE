@@ -1,0 +1,55 @@
+package api;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+
+import indexer.*;
+
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+
+@SpringBootApplication
+public class SearchApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(SearchApplication.class, args);
+    }
+
+    @Bean
+    public DocumentProcessor documentProcessor() {
+        return new DocumentProcessor();
+    }
+
+    @Bean
+    public StopWordFilter stopWordFilter() {
+        return new StopWordFilter();
+    }
+
+    @Bean
+    public Tokenizer tokenizer(StopWordFilter stopWordFilter) {
+        return new Tokenizer(stopWordFilter);
+    }
+
+    @Bean
+    public IndexBuilder indexBuilder(DocumentProcessor documentProcessor, Tokenizer tokenizer) {
+        IndexBuilder builder = new IndexBuilder(documentProcessor, tokenizer);
+        // Replace with your actual document paths and URLs
+        List<Path> documentPaths = List.of(
+                Paths.get("path/to/doc1.html"),
+                Paths.get("path/to/doc2.html")
+        );
+        List<String> urls = List.of(
+                "https://example.com/doc1",
+                "https://example.com/doc2"
+        );
+        builder.buildIndex(documentPaths, urls);
+        return builder;
+    }
+
+    @Bean
+    public void searchEngine(Tokenizer tokenizer, IndexBuilder indexBuilder) {
+        return l
+    }
+}
