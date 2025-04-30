@@ -140,9 +140,11 @@ public class IndexBuilder {
             String term = tokens.get(pos);
             InvertedIndex.Posting posting = termPostings.computeIfAbsent(term, k -> new InvertedIndex.Posting(docId, url));
             posting.addPosition(pos, fieldType);
+           
         }
 
         termPostings.forEach((term, posting) -> {
+         
             index.addTerm(term, posting);
         });
         return tokens.size();

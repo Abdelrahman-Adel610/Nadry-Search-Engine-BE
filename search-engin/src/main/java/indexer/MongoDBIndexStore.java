@@ -62,6 +62,33 @@ public class MongoDBIndexStore {
         return database;
     }
 
+    public DocumentData getDocument(String docId) {
+        checkClientState();
+        try {
+            System.out.println("Retrieving document from Documents collection: " + docId);
+            Document doc = documentsCollection.find(Filters.eq("_id", docId)).first();
+            if (doc == null) {
+                System.out.println("Document not found: " + docId);
+                return null;
+            }
+            DocumentData documentData = new DocumentData(
+                doc.getString("_id"),
+                doc.getString("url"),
+                doc.getString("title"),
+                doc.getString("description"),
+                doc.getString("content"),
+                doc.getList("links", String.class),
+                doc.getInteger("totalWords")
+            );
+            System.out.println("Retrieved document: " + docId);
+            return documentData;
+        } catch (Exception e) {
+            System.err.println("MongoDB error retrieving document " + docId + ": " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     public void saveDocument(String docId, String url, String title, String description, String content, List<String> links, int totalWords) {
         checkClientState();
         try {

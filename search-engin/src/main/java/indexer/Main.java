@@ -41,11 +41,12 @@ public class Main {
             links.add(url2);
             links.add(url3);
 
-            // Compute docIds for debugging
+            // Compute docIds for debugging and testing
             String[] docIds = new String[3];
-            docIds[0] = computeSha256(filePath.toString());
-            docIds[1] = computeSha256(filePath2.toString());
-            docIds[2] = computeSha256(filePath3.toString());
+            docIds[0] = "7f8e911cc1c69b266417bc92e7e3fddf048aac7ef16e132632bc5c2404440fbf";
+            docIds[1] = "c7176b8dd0f20a033403187669450166549e2e317a5a9c244410cf01cfb0b6a4";
+            docIds[2] = "0ec75132de7d6ed2673b2df67c62781d30c91abc942fea5a6fb50449dc73f4d3";
+
 
             // MongoDB configuration
             String mongoConnectionString = System.getenv("MONGO_URI") != null
@@ -101,6 +102,24 @@ public class Main {
 
             // Wait for index building
             indexBuildingFuture.join();
+
+            // Test document retrieval
+            System.out.println("Testing document retrieval...");
+            for (String docId : docIds) {
+                DocumentData doc = mongoStore.getDocument(docId);
+                if (doc == null) {
+                    System.out.println("ERROR: Document '" + docId + "' not found in Documents collection");
+                } else {
+                    System.out.println("Document '" + docId + "' found:");
+                    System.out.println("  URL: " + doc.getUrl());
+                    System.out.println("  Title: " + doc.getTitle());
+                    System.out.println("  Description: " + doc.getDescription());
+                    System.out.println("  Content: " + doc.getContent());
+                    System.out.println("  Links: " + doc.getLinks());
+                    System.out.println("  Total Words: " + doc.getTotalWords());
+                }
+            }
+            System.out.println("Document retrieval testing completed.");
 
         } catch (Exception e) {
             System.err.println("Error in main: " + e.getMessage());
