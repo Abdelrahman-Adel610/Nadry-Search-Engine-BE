@@ -34,6 +34,7 @@ const getSearch = async (req, res) => {
       success: true,
       data: dummyResults.slice((page - 1) * limit, page * limit),
       totalPages: Math.ceil(dummyResults.length / limit),
+      tokens: results.tokens,
     });
   } catch (error) {
     console.error("Search error:", error);

@@ -37,39 +37,6 @@ app.get("/", (req, res) => {
   res.json({ message: "Welcome to the JS Node.js Project API" });
 });
 
-// Diagnostic endpoint to show all routes
-app.get("/api/routes", (req, res) => {
-  const routes = [];
-  app._router.stack.forEach((middleware) => {
-    if (middleware.route) {
-      // routes registered directly on the app
-      routes.push({
-        path: middleware.route.path,
-        methods: Object.keys(middleware.route.methods),
-      });
-    } else if (middleware.name === "router") {
-      // router middleware
-      middleware.handle.stack.forEach((handler) => {
-        if (handler.route) {
-          const path = handler.route.path;
-          const baseUrl = middleware.regexp
-            .toString()
-            .replace("\\^", "")
-            .replace("\\/?(?=\\/|$)", "")
-            .replace(/\\\//g, "/");
-
-          routes.push({
-            path: baseUrl.replace(/\\/g, "") + path,
-            methods: Object.keys(handler.route.methods),
-          });
-        }
-      });
-    }
-  });
-
-  res.json(routes);
-});
-
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
