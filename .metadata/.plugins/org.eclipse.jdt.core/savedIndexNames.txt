@@ -1,3 +1,54 @@
+<<<<<<< HEAD
+INDEX VERSION 1.134+/home/salah/Public/project/nadry_latest/Nadry-Search-Engine-BE/.metadata/.plugins/org.eclipse.jdt.core
+1961494660.index
+4016449462.index
+2495089383.index
+2096980128.index
+3405415412.index
+410779773.index
+2735489275.index
+3651385791.index
+28061321.index
+3457921687.index
+3386431131.index
+4283570286.index
+296201018.index
+2727082708.index
+267531499.index
+1074929022.index
+2418136817.index
+572176650.index
+653320805.index
+2155766455.index
+229766861.index
+1251954109.index
+2836594745.index
+2634658435.index
+2842649036.index
+238763676.index
+2732010580.index
+3326169501.index
+2480325259.index
+2085378197.index
+3323336354.index
+3712248220.index
+2376987798.index
+902543727.index
+899986433.index
+1254872931.index
+1865797976.index
+1844642601.index
+2116760139.index
+175761842.index
+3730739949.index
+3529946471.index
+2379529994.index
+463854360.index
+951898246.index
+3091068293.index
+2413788103.index
+4147035161.index
+=======
 INDEX VERSION 1.134+/home/salah/Public/project/nadry/Nadry-Search-Engine-BE/.metadata/.plugins/org.eclipse.jdt.core
 296201018.index
 1865797976.index
@@ -47,3 +98,4 @@ INDEX VERSION 1.134+/home/salah/Public/project/nadry/Nadry-Search-Engine-BE/.met
 2379529994.index
 2735489275.index
 572176650.index
+>>>>>>> origin/main

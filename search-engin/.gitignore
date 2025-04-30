@@ -17,6 +17,13 @@ build/
 # Java compiled files
 *.class
 
+# Maven/Gradle build output
+target/
+build/
+
+# Java compiled files
+*.class
+
 # IDE files
 .
 *.iml

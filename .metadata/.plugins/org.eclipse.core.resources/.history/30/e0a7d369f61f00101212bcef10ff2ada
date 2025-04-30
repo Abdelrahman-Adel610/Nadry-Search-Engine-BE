@@ -1,4 +1,0 @@
-
-public class RobotChecker {
-	private static String BOT_AGENT = "ndry/1.0";
-}

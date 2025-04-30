@@ -1,3 +1,4 @@
+package indexer;
 
 
 public class DocumentProcessingException  extends Exception {

@@ -1,104 +1,201 @@
 package indexer;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class InvertedIndex {
     private final Map<String, List<Posting>> index = new ConcurrentHashMap<>();
-    
-    // Simple field type enum for weighting
+    private final MongoDBIndexStore mongoStore;
+    private final List<Map.Entry<String, Posting>> pendingUpdates = Collections.synchronizedList(new ArrayList<>());
+    private static final int BATCH_SIZE = 1000;
+
     public enum FieldType {
         TITLE(3.0),
         DESCRIPTION(1.5),
         BODY(1.0);
-        
+
         private final double weight;
-        
+
         FieldType(double weight) {
             this.weight = weight;
         }
-        
+
         public double getWeight() {
             return weight;
         }
     }
-    
-    /**
-     * Adds a term to the index with field type information
-     * 
-     * @param term The term to add
-     * @param docId The document ID
-     * @param position The position in the document
-     * @param fieldType The field where the term was found
-     */
-    public void addTerm(String term, String docId, int position, FieldType fieldType) {
-        index.compute(term, (key, postings) -> {
-            if (postings == null) {
-                // Use synchronized list for thread safety
-                postings = Collections.synchronizedList(new ArrayList<>());
-            }
+
+    public InvertedIndex(String mongoConnectionString, String databaseName, String collectionName) {
+        try {
+            this.mongoStore = new MongoDBIndexStore(mongoConnectionString, databaseName, collectionName);
+        } catch (Exception e) {
+            System.err.println("Failed to initialize MongoDBIndexStore: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("InvertedIndex initialization failed", e);
+        }
+    }
+
+    public void addTerm(String term, Posting posting) {
+        if (mongoStore == null) {
+            System.err.println("MongoDBIndexStore is null, cannot add term: " + term);
+            return;
+        }
+        if (term == null || term.isEmpty() || posting == null) {
+            System.err.println("Invalid term or posting: term=" + term + ", posting=" + posting);
+            return;
+        }
+
+        synchronized (index) {
+            List<Posting> postings = index.computeIfAbsent(term, k -> Collections.synchronizedList(new ArrayList<>()));
             synchronized (postings) {
                 boolean found = false;
-                for (Posting posting : postings) {
-                    if (posting.getDocId().equals(docId)) {
-                        posting.addPosition(position, fieldType);
+                for (Posting existingPosting : postings) {
+                    if (existingPosting.getDocId().equals(posting.getDocId())) {
+                        for (FieldType fieldType : posting.getFieldTypes()) {
+                            List<Integer> positions = posting.getPositions(fieldType);
+                            for (Integer pos : positions) {
+                                existingPosting.addPosition(pos, fieldType);
+                            }
+                        }
                         found = true;
                         break;
                     }
                 }
                 if (!found) {
-                    postings.add(new Posting(docId, position, fieldType));
+                    postings.add(posting);
                 }
             }
-            return postings;
-        });
+        }
+
+        synchronized (pendingUpdates) {
+            boolean merged = false;
+            for (Map.Entry<String, Posting> entry : pendingUpdates) {
+                if (entry.getKey().equals(term) && entry.getValue().getDocId().equals(posting.getDocId())) {
+                    for (FieldType fieldType : posting.getFieldTypes()) {
+                        List<Integer> positions = posting.getPositions(fieldType);
+                        for (Integer pos : positions) {
+                            entry.getValue().addPosition(pos, fieldType);
+                        }
+                    }
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                pendingUpdates.add(Map.entry(term, posting));
+            }
+            if (pendingUpdates.size() >= BATCH_SIZE) {
+                System.out.println("Writing batch of " + pendingUpdates.size() + " updates to MongoDB");
+                flushPendingUpdates();
+            }
+        }
     }
-    
-    /**
-     * Legacy method for backward compatibility
-     */
-    public void addTerm(String term, String docId, int position) {
-        addTerm(term, docId, position, FieldType.BODY);
-    }
-    
+
     public List<Posting> getPostings(String term) {
-        return index.getOrDefault(term, Collections.emptyList());
+        if (mongoStore == null) {
+            System.err.println("MongoDBIndexStore is null, cannot get postings for term: " + term);
+            return Collections.emptyList();
+        }
+        // Always retrieve from MongoDB, bypassing in-memory cache
+        List<Posting> postings = mongoStore.getPostings(term);
+        if (!postings.isEmpty()) {
+            // Update in-memory cache for consistency
+            index.put(term, Collections.synchronizedList(new ArrayList<>(postings)));
+        }
+        return postings != null ? postings : Collections.emptyList();
     }
-    
+
     public Set<String> getTerms() {
-        return index.keySet();
+        if (mongoStore == null) {
+            System.err.println("MongoDBIndexStore is null, cannot get terms");
+            return Collections.emptySet();
+        }
+        Set<String> terms = new HashSet<>(index.keySet());
+        terms.addAll(mongoStore.getTerms());
+        return terms;
     }
-    
+
     public int size() {
-        return index.size();
+        if (mongoStore == null) {
+            System.err.println("MongoDBIndexStore is null, cannot get size");
+            return 0;
+        }
+        return mongoStore.size();
     }
-    
+
+    public void close() {
+        if (mongoStore == null) {
+            System.err.println("MongoDBIndexStore is null, cannot close");
+            return;
+        }
+        synchronized (pendingUpdates) {
+            if (!pendingUpdates.isEmpty()) {
+                System.out.println("Flushing updates to MongoDB");
+                flushPendingUpdates();
+            }
+        }
+        mongoStore.close();
+    }
+
+    public void flushPendingUpdates() {
+        Map<String, Map<String, Posting>> termToPostings = new HashMap<>();
+        for (Map.Entry<String, Posting> update : pendingUpdates) {
+            String term = update.getKey();
+            Posting posting = update.getValue();
+            termToPostings.computeIfAbsent(term, k -> new HashMap<>())
+                .compute(posting.getDocId(), (docId, existing) -> {
+                    if (existing == null) {
+                        return posting;
+                    }
+                    for (FieldType fieldType : posting.getFieldTypes()) {
+                        List<Integer> positions = posting.getPositions(fieldType);
+                        for (Integer pos : positions) {
+                            existing.addPosition(pos, fieldType);
+                        }
+                    }
+                    return existing;
+                });
+        }
+
+        List<Map.Entry<String, Posting>> deduplicatedUpdates = new ArrayList<>();
+        for (Map.Entry<String, Map<String, Posting>> termEntry : termToPostings.entrySet()) {
+            String term = termEntry.getKey();
+            for (Posting posting : termEntry.getValue().values()) {
+                deduplicatedUpdates.add(Map.entry(term, posting));
+            }
+        }
+
+        if (!deduplicatedUpdates.isEmpty()) {
+            mongoStore.addOrUpdatePostings(deduplicatedUpdates);
+        }
+        pendingUpdates.clear();
+    }
+
     public static class Posting {
         private final String docId;
+        private final String url; // Added URL field
         private final Map<FieldType, List<Integer>> fieldPositions;
         private double weight = 0.0;
-        
-        public Posting(String docId, int position, FieldType fieldType) {
+
+        public Posting(String docId, String url) {
             this.docId = docId;
+            this.url = url; // Initialize URL
             this.fieldPositions = new EnumMap<>(FieldType.class);
-            addPosition(position, fieldType);
         }
-        
-        /**
-         * Add a position with field type information
-         */
+
         public void addPosition(int position, FieldType fieldType) {
             fieldPositions.computeIfAbsent(fieldType, k -> new ArrayList<>()).add(position);
-            // Update the weight based on field type
             weight += fieldType.getWeight();
         }
-        
+
         public String getDocId() {
             return docId;
         }
-        
-        /**
-         * Get all positions for all fields
-         */
+
+        public String getUrl() { // Added getter for URL
+            return url;
+        }
+
         public List<Integer> getPositions() {
             List<Integer> allPositions = new ArrayList<>();
             for (List<Integer> positions : fieldPositions.values()) {
@@ -106,17 +203,11 @@ public class InvertedIndex {
             }
             return allPositions;
         }
-        
-        /**
-         * Get positions for a specific field
-         */
+
         public List<Integer> getPositions(FieldType fieldType) {
             return fieldPositions.getOrDefault(fieldType, Collections.emptyList());
         }
-        
-        /**
-         * Get total frequency across all fields
-         */
+
         public int getFrequency() {
             int count = 0;
             for (List<Integer> positions : fieldPositions.values()) {
@@ -124,24 +215,15 @@ public class InvertedIndex {
             }
             return count;
         }
-        
-        /**
-         * Get frequency for a specific field
-         */
+
         public int getFrequency(FieldType fieldType) {
             return fieldPositions.getOrDefault(fieldType, Collections.emptyList()).size();
         }
-        
-        /**
-         * Get the combined weight of this posting
-         */
+
         public double getWeight() {
             return weight;
         }
-        
-        /**
-         * Get the field types where this term appears
-         */
+
         public Set<FieldType> getFieldTypes() {
             return fieldPositions.keySet();
         }
