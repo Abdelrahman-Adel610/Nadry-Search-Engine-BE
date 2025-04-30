@@ -11,6 +11,7 @@ public class MongoJava {
 	private static final String VISITED_URLS_COLLECTION = "visited_urls";
     private static final String QUEUED_URLS_COLLECTION = "queued_urls";
     private static final String COMPACT_STRING_COLLECTION = "compact_string";
+    private static final String CRAWLED_COUNT_COLLECTION = "crawled_count";
     
     private final MongoClient mongoClient;
     private final MongoDatabase database;
@@ -31,6 +32,12 @@ public class MongoJava {
     	MongoCollection<Document> visitedCollection = database.getCollection(VISITED_URLS_COLLECTION);
     	MongoCollection<Document> queuedCollection = database.getCollection(QUEUED_URLS_COLLECTION);
     	MongoCollection<Document> compactCollection = database.getCollection(COMPACT_STRING_COLLECTION);
+    	MongoCollection<Document> countCollection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+    	
+        // Create indexes for queued_urls
+        queuedCollection.createIndex(Indexes.ascending("url"), new IndexOptions().unique(true));
+        queuedCollection.createIndex(Indexes.ascending("addedTimestamp"));
+    	
     	System.out.println("Collections got initialized");
     }
     
@@ -132,6 +139,104 @@ public class MongoJava {
         } catch (Exception e) {
              System.err.println("Error dequeuing URL from MongoDB: " + e.getMessage());
             return null;
+        }
+    }
+    
+    public long getQueueCount() {
+        try {
+            MongoCollection<Document> collection = database.getCollection(QUEUED_URLS_COLLECTION);
+            return collection.countDocuments();
+        } catch (Exception e) {
+             System.err.println("Error getting MongoDB queue count: " + e.getMessage());
+             return -1; 
+        }
+    }
+    
+    public int getCrawledCount() {
+    	try {
+    		 MongoCollection<Document> collection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+    		 Document counterDoc = collection.find(Filters.eq("_id", "page_counter")).first();
+    		 if (counterDoc != null) {
+                 // Document found, get the value from the "count" field.
+                 // Default to 0 if field is missing or not an integer.
+                 return counterDoc.getInteger("count", 0);
+             } else {
+                 // Counter document doesn't exist yet, the count is effectively 0.
+                 return 0;
+             }	 	
+    	}catch(Exception e) {
+    		e.printStackTrace();
+    		return -1;
+    	}
+    }
+//    public boolean updateCrawledCount(int count) {
+//    	try {
+//   		 MongoCollection<Document> collection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+//   		 // collection.updateOne(Filters.eq("_id", "page_counter"), new Document("$set", new Document("count", count)));
+//   		 
+//   		 // Options to create the document if it doesn't exist
+//         UpdateOptions options = new UpdateOptions().upsert(true);
+//   		 collection.updateOne(
+//   	            Filters.eq("_id", "page_counter"), // Filter: find the document by its ID
+//   	            Updates.set("count", count),   // Update: use $set to update the count field
+//   	            options                            // Apply options (upsert=true)
+//   	        );
+//   		 return true; 	 	
+//   	}catch(Exception e) {
+//   		e.printStackTrace();
+//   		return false;
+//   	}
+//    }
+    // made to be atomic
+    public boolean incrementCrawledCount() {
+        try {
+            MongoCollection<Document> collection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+
+            // Options to create the document if it doesn't exist
+            UpdateOptions options = new UpdateOptions().upsert(true);
+            collection.updateOne(
+                Filters.eq("_id", "page_counter"), 
+                Updates.inc("count", 1),      // The atomic increment operation
+                options                         
+            );
+            return true; // updateOne doesn't throw error on success usually
+        } catch (Exception e) {
+            System.err.println("Error incrementing crawled count in MongoDB: " + e.getMessage());
+            e.printStackTrace();
+            return false; 
+        }
+    }
+    public int incrementAndGetCrawledCount() {
+        try {
+            MongoCollection<Document> collection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+
+            // Options for findOneAndUpdate:
+            FindOneAndUpdateOptions options = new FindOneAndUpdateOptions()
+                    .upsert(true) // Create the document if it doesn't exist
+                    .returnDocument(ReturnDocument.AFTER); // Return the document AFTER the update
+
+            // Atomically find the document, increment the count, and return the updated document
+            Document updatedDoc = collection.findOneAndUpdate(
+                Filters.eq("_id", "page_counter"), // Filter: find the counter document
+                Updates.inc("count", 1),      // Update: atomically increment the count field by 1
+                options                           // Apply the options (upsert, return after)
+            );
+
+            if (updatedDoc != null) {
+                 // Document was found or created, extract the new count.
+                 // Use Number.class for flexibility, default to 0 if field missing (shouldn't happen here)
+                 Number newCount = updatedDoc.get("count", Number.class);
+                 return (newCount != null) ? newCount.intValue() : 0; // Should have the count field
+            } else {
+                // This case should be rare with upsert=true unless there's a severe DB issue
+                // or the operation was somehow interrupted before returning the doc.
+                System.err.println("Failed to update/create counter document, findOneAndUpdate returned null unexpectedly.");
+                return -1; // Indicate failure
+            }
+        } catch (Exception e) {
+            System.err.println("Error incrementing and getting crawled count in MongoDB: " + e.getMessage());
+            e.printStackTrace(); // Log for debugging
+            return -1; // Indicate failure
         }
     }
 

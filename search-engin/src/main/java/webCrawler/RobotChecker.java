@@ -34,7 +34,7 @@ public class RobotChecker {
             }
 
             boolean allowed = rules.isAllowed(urlToCheck);
-            System.out.println("Robots check for " + urlToCheck + ": " + (allowed ? "Allowed" : "Disallowed"));
+//            System.out.println("Robots check for " + urlToCheck + ": " + (allowed ? "Allowed" : "Disallowed"));
             return allowed;
 
         }catch (Exception e) {
@@ -44,7 +44,7 @@ public class RobotChecker {
     }
     private static SimpleRobotRules getRobotRules(String hostKey) {
 
-        System.out.println("Fetching robots.txt for: " + hostKey);
+//        System.out.println("Fetching robots.txt for: " + hostKey);
         String robotsUrl = hostKey + "/robots.txt";
         byte[] robotsBytes = fetchRobotsTxtBytesWithJsoup(robotsUrl);
 
