@@ -60,13 +60,18 @@ let tokenizerInstance = null;
 let tokenizerType = "fallback";
 
 try {
-  // Try importing TokenizerWrapper first (full implementation)
-  const TokenizerWrapper = java.import("TokenizerWrapper");
+  // Try importing TokenizerWrapper using its fully qualified name
+  const TokenizerWrapper = java.import("indexer.TokenizerWrapper"); // Use fully qualified name
   tokenizerInstance = new TokenizerWrapper();
-  tokenizerType = "TokenizerWrapper";
-  console.log("Successfully loaded TokenizerWrapper");
+  tokenizerType = "JavaTokenizerWrapper"; // Update type name for clarity
+  console.log("Successfully loaded indexer.TokenizerWrapper");
 } catch (wrapperError) {
-  console.warn("Failed to load TokenizerWrapper:", wrapperError.message);
+  console.warn(
+    "Failed to load indexer.TokenizerWrapper:",
+    wrapperError.message
+  );
+  // Log the full error for better debugging
+  console.error(wrapperError);
 
   // Create a JavaScript-based fallback
   tokenizerInstance = {
@@ -98,20 +103,15 @@ function tokenize(text) {
     if (tokenizerType === "fallback") {
       return tokenizerInstance.tokenize(text);
     } else {
-      // Java tokenizers use the 'tokenizeSync' method for synchronous calls
-      const result = tokenizerInstance.tokenizeSync(text);
+      // Java tokenizers use the 'tokenize' method which now returns String[]
+      const javaArray = tokenizerInstance.tokenizeSync(text);
 
-      // Convert Java array to JavaScript array if needed
-      if (Array.isArray(result)) {
-        return result;
-      } else if (typeof result.length === "number") {
-        const jsArray = [];
-        for (let i = 0; i < result.length; i++) {
-          jsArray.push(String(result[i]));
-        }
-        return jsArray;
+      // Convert Java String[] to JavaScript array
+      const jsArray = [];
+      for (let i = 0; i < javaArray.length; i++) {
+        jsArray.push(String(javaArray[i])); // Ensure conversion to JS string
       }
-      return [];
+      return jsArray;
     }
   } catch (error) {
     // Log the actual error for debugging
