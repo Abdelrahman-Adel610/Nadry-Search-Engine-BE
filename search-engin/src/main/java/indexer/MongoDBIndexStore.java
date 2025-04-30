@@ -24,7 +24,9 @@ import indexer.InvertedIndex.Posting;
 
 public class MongoDBIndexStore {
     private final MongoClient mongoClient;
+    private final MongoDatabase database;
     private final MongoCollection<Document> collection;
+    private final MongoCollection<Document> documentsCollection;
 
     public MongoDBIndexStore(String connectionString, String databaseName, String collectionName) {
         if (connectionString == null || connectionString.isEmpty()) {
@@ -38,22 +40,46 @@ public class MongoDBIndexStore {
         }
         try {
             System.out.println("Connecting to MongoDB with connection string: " + connectionString);
-            // Configure connection settings
             ConnectionString connString = new ConnectionString(connectionString + "?connectTimeoutMS=5000&socketTimeoutMS=5000&maxPoolSize=10");
             MongoClientSettings settings = MongoClientSettings.builder()
                 .applyConnectionString(connString)
                 .retryWrites(true)
                 .build();
             mongoClient = MongoClients.create(settings);
-            MongoDatabase database = mongoClient.getDatabase(databaseName);
+            database = mongoClient.getDatabase(databaseName);
             collection = database.getCollection(collectionName);
-            // Verify connection
+            documentsCollection = database.getCollection("Documents");
             database.runCommand(new Document("ping", 1));
             System.out.println("Successfully connected to MongoDB database: " + databaseName + ", collection: " + collectionName);
         } catch (Exception e) {
             System.err.println("Failed to initialize MongoDB client: " + e.getMessage());
             e.printStackTrace();
             throw new RuntimeException("MongoDB initialization failed", e);
+        }
+    }
+
+    public MongoDatabase getDatabase() {
+        return database;
+    }
+
+    public void saveDocument(String docId, String url, String title, String description, String content, List<String> links, int totalWords) {
+        checkClientState();
+        try {
+            Document doc = new Document("_id", docId)
+                .append("url", url)
+                .append("title", title)
+                .append("description", description)
+                .append("content", content)
+                .append("links", links)
+                .append("totalWords", totalWords);
+
+            System.out.println("Saving document to Documents collection: " + docId);
+            Bson filter = Filters.eq("_id", docId);
+            documentsCollection.updateOne(filter, Updates.setOnInsert(doc), new UpdateOptions().upsert(true));
+            System.out.println("Saved document to Documents collection: " + docId);
+        } catch (Exception e) {
+            System.err.println("MongoDB error saving document " + docId + ": " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -70,15 +96,16 @@ public class MongoDBIndexStore {
 
             Document postingDoc = new Document()
                 .append("docId", posting.getDocId())
-                .append("url", posting.getUrl()) // Added URL field
+                .append("url", posting.getUrl())
                 .append("fieldPositions", fieldPositionsDoc)
                 .append("weight", posting.getWeight());
 
+            System.out.println("Adding/updating posting for term: " + term + ", docId: " + posting.getDocId());
             Bson filter = Filters.eq("_id", term);
 
             Bson updateExisting = Updates.combine(
                 Updates.set("postings.$[elem].fieldPositions", fieldPositionsDoc),
-                Updates.set("postings.$[elem].url", posting.getUrl()), // Added URL update
+                Updates.set("postings.$[elem].url", posting.getUrl()),
                 Updates.set("postings.$[elem].weight", posting.getWeight())
             );
 
@@ -97,6 +124,7 @@ public class MongoDBIndexStore {
                 Bson updateNew = Updates.push("postings", postingDoc);
                 collection.updateOne(filter, updateNew, new UpdateOptions().upsert(true));
             }
+            System.out.println("Added/updated posting for term: " + term);
         } catch (Exception e) {
             System.err.println("MongoDB error for term " + term + ": " + e.getMessage());
             e.printStackTrace();
@@ -119,13 +147,13 @@ public class MongoDBIndexStore {
                 }
                 Document postingDoc = new Document()
                     .append("docId", posting.getDocId())
-                    .append("url", posting.getUrl()) // Added URL field
+                    .append("url", posting.getUrl())
                     .append("fieldPositions", fieldPositionsDoc)
                     .append("weight", posting.getWeight());
                 Bson filter = Filters.eq("_id", term);
                 Bson updateExisting = Updates.combine(
                     Updates.set("postings.$[elem].fieldPositions", fieldPositionsDoc),
-                    Updates.set("postings.$[elem].url", posting.getUrl()), // Added URL update
+                    Updates.set("postings.$[elem].url", posting.getUrl()),
                     Updates.set("postings.$[elem].weight", posting.getWeight())
                 );
                 Document arrayFilter = new Document("elem.docId", posting.getDocId());
@@ -141,7 +169,9 @@ public class MongoDBIndexStore {
                 ));
             }
             if (!bulkWrites.isEmpty()) {
+                System.out.println("Executing bulk write of " + bulkWrites.size() + " operations");
                 collection.bulkWrite(bulkWrites);
+                System.out.println("Completed bulk write");
             }
         } catch (Exception e) {
             System.err.println("MongoDB batch write error: " + e.getMessage());
@@ -159,10 +189,10 @@ public class MongoDBIndexStore {
                 List<Document> postingDocs = termDoc.getList("postings", Document.class);
                 for (Document postingDoc : postingDocs) {
                     String docId = postingDoc.getString("docId");
-                    String url = postingDoc.getString("url"); // Retrieve URL field
+                    String url = postingDoc.getString("url");
                     Document fieldPositionsDoc = postingDoc.get("fieldPositions", Document.class);
 
-                    Posting posting = new Posting(docId, url); // Pass URL to constructor
+                    Posting posting = new Posting(docId, url);
                     for (Entry<String, Object> entry : fieldPositionsDoc.entrySet()) {
                         try {
                             FieldType fieldType = FieldType.valueOf(entry.getKey());
@@ -178,6 +208,7 @@ public class MongoDBIndexStore {
                     postings.add(posting);
                 }
             }
+            System.out.println("Retrieved postings for term: " + term + ", count: " + postings.size());
             return postings;
         } catch (Exception e) {
             System.err.println("MongoDB read error for term " + term + ": " + e.getMessage());
@@ -189,7 +220,9 @@ public class MongoDBIndexStore {
     public Set<String> getTerms() {
         checkClientState();
         try {
-            return collection.distinct("_id", String.class).into(new java.util.HashSet<>());
+            Set<String> terms = collection.distinct("_id", String.class).into(new java.util.HashSet<>());
+            System.out.println("Retrieved terms count: " + terms.size());
+            return terms;
         } catch (Exception e) {
             System.err.println("MongoDB error getting terms: " + e.getMessage());
             e.printStackTrace();
@@ -200,7 +233,9 @@ public class MongoDBIndexStore {
     public int size() {
         checkClientState();
         try {
-            return (int) collection.countDocuments();
+            int count = (int) collection.countDocuments();
+            System.out.println("inverted_index size: " + count);
+            return count;
         } catch (Exception e) {
             System.err.println("MongoDB error counting documents: " + e.getMessage());
             e.printStackTrace();
@@ -222,7 +257,6 @@ public class MongoDBIndexStore {
 
     private void checkClientState() {
         try {
-            // Attempt a lightweight operation to verify connection
             mongoClient.getDatabase("admin").runCommand(new Document("ping", 1));
         } catch (Exception e) {
             System.err.println("MongoDB client is not open or server is unreachable: " + e.getMessage());

@@ -1,8 +1,10 @@
 package indexer;
 
+import com.mongodb.client.MongoDatabase;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -14,6 +16,7 @@ public class Main {
     public static void main(String[] args) {
         ExecutorService executor = Executors.newFixedThreadPool(4);
         InvertedIndex index = null;
+        MongoDBIndexStore mongoStore = null;
 
         try {
             // Define document paths and URLs
@@ -25,7 +28,7 @@ public class Main {
             String url3 = "https://example.com/sample2.html";
 
             // Validate file existence
-            if (!Files.exists(filePath) || !Files.exists(filePath2)) {
+            if (!Files.exists(filePath) || !Files.exists(filePath2) || !Files.exists(filePath3)) {
                 throw new RuntimeException("One or more files do not exist");
             }
 
@@ -38,15 +41,30 @@ public class Main {
             links.add(url2);
             links.add(url3);
 
+            // Compute docIds for debugging
+            String[] docIds = new String[3];
+            docIds[0] = computeSha256(filePath.toString());
+            docIds[1] = computeSha256(filePath2.toString());
+            docIds[2] = computeSha256(filePath3.toString());
+
             // MongoDB configuration
-            String mongoConnectionString = "mongodb://localhost:27017/search_engine";
+            String mongoConnectionString = System.getenv("MONGO_URI") != null
+                ? System.getenv("MONGO_URI")
+                : "mongodb://localhost:27017/search_engine";
             String databaseName = "search_engine";
             String collectionName = "inverted_index";
 
-            // Initialize components outside the future
+            // Initialize components
             DocumentProcessor processor = new DocumentProcessor();
             StopWordFilter stopWordFilter = new StopWordFilter();
             Tokenizer tokenizer = new Tokenizer(stopWordFilter);
+            mongoStore = new MongoDBIndexStore(mongoConnectionString, databaseName, collectionName);
+
+            // Clear collections
+            MongoDatabase database = mongoStore.getDatabase();
+            database.getCollection("inverted_index").drop();
+            database.getCollection("Documents").drop();
+            System.out.println("Cleared inverted_index and Documents collections");
 
             // Print input
             System.out.println("URLs:");
@@ -54,9 +72,9 @@ public class Main {
                 System.out.println(link);
             }
             System.out.println("--------------------------------------");
-            System.out.println("Document Paths:");
-            for (Path path : paths) {
-                System.out.println(path.toString());
+            System.out.println("Document Paths and DocIDs:");
+            for (int i = 0; i < paths.size(); i++) {
+                System.out.println(paths.get(i).toString() + " -> " + docIds[i]);
             }
             System.out.println("--------------------------------------");
 
@@ -69,7 +87,7 @@ public class Main {
                 databaseName,
                 collectionName
             );
-            index = getIndex(indexBuilder); // Store index for testing
+            index = getIndex(indexBuilder);
             CompletableFuture<Void> indexBuildingFuture = CompletableFuture.runAsync(() -> {
                 try {
                     indexBuilder.buildIndex(paths, links);
@@ -83,48 +101,12 @@ public class Main {
 
             // Wait for index building
             indexBuildingFuture.join();
-            index.close()	;
-            executor.shutdown();
-
-//            // Test the inverted index
-//            System.out.println("Testing inverted index...");
-//            CompletableFuture<Void> testFuture = CompletableFuture.runAsync(() -> {
-//                try {
-//                    System.out.println("Total unique terms: " + index.size());
-//
-//                    String[] testTerms = {"main", "menu", "aref"};
-//                    for (String term : testTerms) {
-//                        List<InvertedIndex.Posting> postings = index.getPostings(term);
-//                        if (postings.isEmpty()) {
-//                            System.out.println("ERROR: Term '" + term + "' not found in index");
-//                        } else {
-//                            System.out.println("Term '" + term + "' found with " + postings.size() + " postings:");
-//                            for (InvertedIndex.Posting posting : postings) {
-//                                System.out.println("  DocID: " + posting.getDocId());
-//                                System.out.println("    Frequency: " + posting.getFrequency());
-//                                System.out.println("    Weight: " + posting.getWeight());
-//                                System.out.println("    Field Types: " + posting.getFieldTypes());
-//                                for (InvertedIndex.FieldType fieldType : posting.getFieldTypes()) {
-//                                    System.out.println("    Positions (" + fieldType + "): " + posting.getPositions(fieldType));
-//                                }
-//                            }
-//                        }
-//                    }
-//                    System.out.println("Index testing completed.");
-//                } catch (Exception e) {
-//                    System.err.println("Error during index testing: " + e.getMessage());
-//                    e.printStackTrace();
-//                }
-//            }, executor);
-//
-//            // Wait for testing
-//            testFuture.join();
 
         } catch (Exception e) {
             System.err.println("Error in main: " + e.getMessage());
             e.printStackTrace();
         } finally {
-            // Close the index
+            // Close resources
             if (index != null) {
                 try {
                     index.close();
@@ -133,11 +115,19 @@ public class Main {
                     e.printStackTrace();
                 }
             }
-            // Shutdown executor
+            if (mongoStore != null) {
+                try {
+                    mongoStore.close();
+                } catch (Exception e) {
+                    System.err.println("Error closing MongoDB store: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
             try {
+                executor.shutdown();
                 if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
                     executor.shutdownNow();
-                    System.err.println("Executor terminate within timeout----");
+                    System.err.println("Executor did not terminate within timeout");
                 }
             } catch (InterruptedException e) {
                 executor.shutdownNow();
@@ -151,5 +141,21 @@ public class Main {
         java.lang.reflect.Field indexField = IndexBuilder.class.getDeclaredField("index");
         indexField.setAccessible(true);
         return (InvertedIndex) indexField.get(builder);
+    }
+
+    private static String computeSha256(String input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes("UTF-8"));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("Error computing SHA-256", e);
+        }
     }
 }
