@@ -27,7 +27,7 @@ public class WebCrawler implements Runnable {
 	//	private static Set<String> visitedURLs = new HashSet<String>();
 	//  private static Queue<String> linksQueue = new LinkedList<String>();
 	private static final Pattern INVALID_FILENAME_CHARS = Pattern.compile("[\\\\/:*?\"<>|]");
-	private final int MAX_PAGES_NUMBER = 100;
+	private final int MAX_PAGES_NUMBER = 6000;
 	public static List<Path> paths = new LinkedList<>();
     public static List<String> links = new LinkedList<>();
 	
@@ -63,14 +63,19 @@ public class WebCrawler implements Runnable {
 		while(crawledPages<MAX_PAGES_NUMBER) {
 			// 1) getting link from Database 
 			url = getLinkFromDB();	//a wrapper for dequeuing from DB to handle a case in threads
-			// 2) robots check
-			if(!RobotChecker.isUrlAllowed(url)) {
-				System.out.println("NOT ALLOWED");
+			if(url.contains("wikipedia"))
+				continue;
+
+			// 2) if visited once before
+			if(database.isVisited(url)) {// <-- changed after database
 				continue;
 			}
 
-			// 3) if visited once before
-			if(database.isVisited(url)) {// <-- changed after database
+			// 3) robots check
+			if(!RobotChecker.isUrlAllowed(url)) {
+				System.out.println("NOT ALLOWED");
+				// marking it as visited to avoid re-checking on the eligibility of crawling
+				database.markVisited(url);
 				continue;
 			}
 			// 4) fetching the document
@@ -115,10 +120,11 @@ public class WebCrawler implements Runnable {
 //				e.printStackTrace();
 //			}
 			
-			System.out.println(crawledPages+ " Thread "+Thread.currentThread().getId());
+//			System.out.println(crawledPages+ " Thread "+Thread.currentThread().getId());
+			System.out.println(crawledPages);
 			
 			// log current URL
-	        System.out.println("Crawling: " + url);
+//	        System.out.println("Crawling: " + url);
 	        
 	        // visitedURLs.add(url); <== removed after database
 	        // 7) Mark it as visited
@@ -128,13 +134,16 @@ public class WebCrawler implements Runnable {
 //       	 	crawledPages++;
        	 	crawledPages = database.incrementAndGetCrawledCount();
 //       	 	database.updateCrawledCount(crawledPages);
+       	 	if(database.getQueueCount()<1000) {
+       	 		extractHyperLinks = true;
+       	 	}
+       	 	if(!extractHyperLinks || database.getQueueCount()>= 2*MAX_PAGES_NUMBER) {
+       	 		extractHyperLinks = false;
+//	        	notifyAll();	// in case of a thread sleeping
+       	 		continue;
+       	 	}
        	 	
 	        Elements links = doc.select("a[href]");
-	        if(!extractHyperLinks || database.getQueueCount()>= MAX_PAGES_NUMBER) {
-	        	System.out.println(database.getQueueCount());
-//	        	notifyAll();	// in case of a thread sleeping
-	        	continue;
-	        }
 	        for(Element link:links) {
 	        	 String nextUrl = link.absUrl("href");
 	        	 if (nextUrl == null || nextUrl.isEmpty() ||

@@ -1,0 +1,123 @@
+package webCrawler;
+
+import java.io.IOException;
+import java.util.Collections; // Import Collections
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.nio.file.Path; // Import Path
+
+public class WebCrawlerMain {
+
+    private final static int MAX_PAGES_NUMBER = 6000; // Or get from args
+    private final static int DEFAULT_THREADS = 8;
+
+    public static void main(String[] args) {
+        // --- Configuration ---
+        List<String> initialSeedUrls = new LinkedList<>();
+        String dbConnectionString = "mongodb://localhost:27017/";
+        String dbName = "Ndry";
+        int numberOfThreads = DEFAULT_THREADS;
+
+        // --- Database Initialization ---
+        MongoJava database = null;
+        ExecutorService executor = null;
+
+        try {
+            database = new MongoJava(dbConnectionString, dbName);
+            int pageCount = database.getCrawledCount(); // Get initial count from DB
+
+            // --- Seed Logic (Run ONCE before threads start) ---
+            boolean startWithFreshSeeds = false;
+            if (pageCount >= MAX_PAGES_NUMBER || pageCount <= 0) { // Reset if finished or never started
+                 System.out.println("Initializing/resetting crawl with fresh seeds.");
+                 pageCount = 0;
+                 // Optional: Clear queue, visited, signatures, count in DB if resetting
+                 // database.resetCrawlState(); // <-- Implement this if needed
+
+                 // Add initial seeds
+                 initialSeedUrls.add("https://en.wikipedia.org/wiki/Main_Page"); // Use Main_Page
+                 initialSeedUrls.add("https://news.google.com/");
+                 initialSeedUrls.add("https://jsoup.org/");
+                 initialSeedUrls.add("https://dmoz-odp.org/"); // Example diverse seed
+                 // Add more seeds...
+
+                 // Enqueue initial seeds (make sure they are normalized)
+                 for (String seed : initialSeedUrls) {
+                     try {
+                         // Use the static normalizeLink from WebCrawler
+                         String normalizedSeed = WebCrawler.normalizeLink(seed);
+                          if (normalizedSeed != null && !database.isVisited(normalizedSeed)) {
+                               database.enqueueUrl(normalizedSeed);
+                          }
+                     } catch (Exception e) {
+                         System.err.println("Skipping invalid seed URL: " + seed + " - " + e.getMessage());
+                     }
+                 }
+                 // Reset the persisted count only if initializing
+                 // database.resetCounter(); // <-- Implement if needed
+                 System.out.println("Seeds enqueued.");
+
+             } else {
+                 System.out.println("Resuming crawl. Initial page count: " + pageCount + ". Queue items: " + database.getQueueCount());
+             }
+
+
+            // --- Get Thread Count ---
+            Scanner sc = new Scanner(System.in);
+            System.out.print("Enter the number of threads [" + DEFAULT_THREADS + "]: ");
+             try { /* ... (Get user input as before) ... */
+                 String input = sc.nextLine();
+                if (!input.trim().isEmpty()) { numberOfThreads = Integer.parseInt(input); if (numberOfThreads <= 0) numberOfThreads = DEFAULT_THREADS; }
+             } catch (NumberFormatException e) { numberOfThreads = DEFAULT_THREADS; }
+            finally { sc.close(); }
+
+
+            // --- Setup and Start Thread Pool ---
+            System.out.println("Starting crawler with " + numberOfThreads + " threads. Max pages: " + MAX_PAGES_NUMBER);
+            executor = Executors.newFixedThreadPool(numberOfThreads);
+
+            // Create and submit worker tasks
+            for (int i = 0; i < numberOfThreads; i++) {
+                // Pass the SINGLE shared database instance to each worker
+                executor.submit(new WebCrawler(database)); // Use simplified constructor
+            }
+
+            // Shutdown executor when tasks are done (Simplified: Wait for manual stop or implement better completion check)
+            executor.shutdown(); // Signal no more tasks accepted
+            System.out.println("Crawler running... Waiting for termination (or press Ctrl+C). Max wait: 1 hour.");
+            // Wait for tasks to finish, with a timeout
+            if (!executor.awaitTermination(1, TimeUnit.HOURS)) { // Adjust timeout
+                 System.err.println("Crawler timed out, forcing shutdown.");
+                 executor.shutdownNow();
+            } else {
+                 System.out.println("Crawler finished normally.");
+            }
+
+        } catch (Exception e) {
+            System.err.println("Critical error during crawler setup or execution:");
+            e.printStackTrace();
+            // Ensure shutdown on error
+            if (executor != null && !executor.isTerminated()) {
+                 executor.shutdownNow();
+            }
+        } finally {
+            // --- Close Database Connection ---
+            if (database != null) {
+                database.close();
+            }
+
+            // --- Print Final Results ---
+            System.out.println("\n--- Crawl Finished / Terminated ---");
+             if (database != null) { // Check if DB was initialized
+                 System.out.println("Final pages counted in DB (approx): " + database.getCrawledCount());
+             }
+            System.out.println("Number of unique documents saved: " + WebCrawler.links.size());
+            // Optional: Print saved links/paths
+            // ...
+        }
+    }
+}

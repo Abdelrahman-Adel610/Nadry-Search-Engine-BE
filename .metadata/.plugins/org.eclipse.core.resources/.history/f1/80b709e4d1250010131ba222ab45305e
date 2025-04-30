@@ -1,0 +1,131 @@
+package webCrawler;
+
+import java.util.Date;
+import java.util.HashSet;
+import java.util.Set;
+
+import com.mongodb.client.*;
+import com.mongodb.client.model.*;
+import org.bson.Document;
+
+import com.mongodb.client.model.Indexes;
+import com.mongodb.client.model.IndexOptions;
+
+public class MongoJava {
+    private final MongoDatabase database;
+    private final Set<String> visitedUrlsCache;
+    private final Set<String> compactStringCache;
+
+    private static final String VISITED_URLS_COLLECTION = "visited_urls";
+    private static final String QUEUED_URLS_COLLECTION = "queued_urls";
+    private static final String COMPACT_STRING_COLLECTION = "compact_string";
+    private static final String CRAWLED_COUNT_COLLECTION = "crawled_count";
+
+    public MongoJava(String connectionString, String dbName) {
+        MongoClient mongoClient = MongoClients.create(connectionString);
+        this.database = mongoClient.getDatabase(dbName);
+        this.visitedUrlsCache = new HashSet<>();
+        this.compactStringCache = new HashSet<>();
+        initCollections();
+        loadCache();
+    }
+
+    private void initCollections() {
+        MongoCollection<Document> visitedCollection = database.getCollection(VISITED_URLS_COLLECTION);
+        MongoCollection<Document> queuedCollection = database.getCollection(QUEUED_URLS_COLLECTION);
+        MongoCollection<Document> compactCollection = database.getCollection(COMPACT_STRING_COLLECTION);
+        MongoCollection<Document> countCollection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+        
+        // Create indexes for queued_urls
+        queuedCollection.createIndex(Indexes.ascending("url"), new IndexOptions().unique(true));
+        queuedCollection.createIndex(Indexes.ascending("addedTimestamp"));
+        
+        System.out.println("Collections initialized with indexes");
+    }
+
+    private void loadCache() {
+        MongoCollection<Document> visitedCollection = database.getCollection(VISITED_URLS_COLLECTION);
+        MongoCollection<Document> compactCollection = database.getCollection(COMPACT_STRING_COLLECTION);
+
+        try (MongoCursor<Document> visitedCursor = visitedCollection.find().projection(Projections.include("_id")).iterator()) {
+            while (visitedCursor.hasNext()) {
+                Document doc = visitedCursor.next();
+                visitedUrlsCache.add(doc.getString("_id"));
+            }
+        }
+
+        try (MongoCursor<Document> compactCursor = compactCollection.find().projection(Projections.include("_id")).iterator()) {
+            while (compactCursor.hasNext()) {
+                Document doc = compactCursor.next();
+                compactStringCache.add(doc.getString("_id"));
+            }
+        }
+    }
+
+    public void markVisited(String url) {
+        MongoCollection<Document> collection = database.getCollection(VISITED_URLS_COLLECTION);
+        Document doc = new Document("_id", url);
+        collection.insertOne(doc);
+        visitedUrlsCache.add(url);
+    }
+
+    public boolean isVisited(String url) {
+        return visitedUrlsCache.contains(url);
+    }
+
+    public void enqueueUrl(String url) {
+        MongoCollection<Document> collection = database.getCollection(QUEUED_URLS_COLLECTION);
+        collection.updateOne(
+            Filters.eq("url", url),
+            Updates.combine(
+                Updates.setOnInsert("url", url),
+                Updates.setOnInsert("addedTimestamp", new Date())
+            ),
+            new UpdateOptions().upsert(true)
+        );
+    }
+
+    public String dequeueUrl() {
+        MongoCollection<Document> collection = database.getCollection(QUEUED_URLS_COLLECTION);
+        Document doc = collection.findOneAndDelete(
+            new Document(),
+            new FindOneAndDeleteOptions().sort(Sorts.ascending("addedTimestamp"))
+        );
+        return doc != null ? doc.getString("url") : null;
+    }
+
+    public long getQueueCount() {
+        MongoCollection<Document> collection = database.getCollection(QUEUED_URLS_COLLECTION);
+        return collection.countDocuments();
+    }
+
+    public boolean isQueueEmpty() {
+        return getQueueCount() == 0;
+    }
+
+    public void addCompactString(String cs) {
+        MongoCollection<Document> collection = database.getCollection(COMPACT_STRING_COLLECTION);
+        Document doc = new Document("_id", cs);
+        collection.insertOne(doc);
+        compactStringCache.add(cs);
+    }
+
+    public boolean hasCompactString(String cs) {
+        return compactStringCache.contains(cs);
+    }
+
+    public void incrementCrawledCount() {
+        MongoCollection<Document> collection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+        collection.updateOne(
+            Filters.eq("_id", "page_counter"),
+            Updates.inc("count", 1),
+            new UpdateOptions().upsert(true)
+        );
+    }
+
+    public long getCrawledCount() {
+        MongoCollection<Document> collection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+        Document doc = collection.find(Filters.eq("_id", "page_counter")).first();
+        return doc != null ? doc.getInteger("count", 0) : 0;
+    }
+}

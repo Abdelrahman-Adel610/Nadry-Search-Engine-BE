@@ -33,6 +33,11 @@ public class MongoJava {
     	MongoCollection<Document> queuedCollection = database.getCollection(QUEUED_URLS_COLLECTION);
     	MongoCollection<Document> compactCollection = database.getCollection(COMPACT_STRING_COLLECTION);
     	MongoCollection<Document> countCollection = database.getCollection(CRAWLED_COUNT_COLLECTION);
+    	
+        // Create indexes for queued_urls
+        queuedCollection.createIndex(Indexes.ascending("url"), new IndexOptions().unique(true));
+        queuedCollection.createIndex(Indexes.ascending("addedTimestamp"));
+    	
     	System.out.println("Collections got initialized");
     }
     

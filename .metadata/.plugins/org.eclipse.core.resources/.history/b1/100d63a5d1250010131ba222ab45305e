@@ -1,0 +1,199 @@
+package webCrawler;
+
+import java.io.*;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collections; // Import Collections
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean; // If needed for external shutdown
+import java.util.regex.Pattern;
+
+import org.jsoup.Connection;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.*;
+import org.jsoup.select.Elements;
+
+public class WebCrawler implements Runnable {
+
+    // --- Constants and Shared Static Resources ---
+    private static final Pattern INVALID_FILENAME_CHARS = Pattern.compile("[\\\\/:*?\"<>|]");
+    private static final int MAX_PAGES_NUMBER = 6000;
+    private static final Path BASE_STORAGE_PATH = Paths.get("D:\\faculty stuff\\2nd year\\2nd term\\projects\\Ndry search engin\\search-engin\\crawled_data");
+    private static final String MY_USER_AGENT = "Ndry/1.0";
+
+    // Thread-safe lists for results
+    public static final List<Path> paths = Collections.synchronizedList(new LinkedList<>());
+    public static final List<String> links = Collections.synchronizedList(new LinkedList<>());
+
+    // Shared shutdown signal (optional, if external stop needed)
+    // private static final AtomicBoolean shutdownSignal = new AtomicBoolean(false);
+
+    // --- Instance Variables ---
+    private final MongoJava database; // Shared DB access instance
+
+    // --- Constructor ---
+    public WebCrawler(MongoJava db) { // Simplified constructor
+        this.database = db;
+    }
+
+    // Optional static method for external shutdown signal
+    // public static void signalShutdown() { shutdownSignal.set(true); }
+
+    @Override
+    public void run() {
+        System.out.println("Worker thread started: " + Thread.currentThread().getName());
+        String dir = "crawled_data"; // Used locally for path construction
+
+        try {
+            // Loop while under page limit AND (optional) not shutting down
+            while (/*!shutdownSignal.get() && */ database.getCrawledCount() < MAX_PAGES_NUMBER) { // Check count directly
+
+                // 1) Getting link from Database
+                String url = database.dequeueUrl(); // Poll the DB queue directly
+                if (url == null) {
+                    // Queue is likely empty, pause and retry unless shutdown signaled
+                    // if (shutdownSignal.get()) break;
+                    if (database.isQueueEmpty()){ // Double check before sleeping long
+                        // System.out.println(Thread.currentThread().getName() + " - Queue empty, pausing...");
+                        try {
+                            Thread.sleep(2000); // Wait 2 seconds before checking queue again
+                            // Check again after sleep before continuing loop
+                             if (database.isQueueEmpty() /*&& !shutdownSignal.get() - if using signal*/) {
+                                 // If still empty after sleep, maybe break? Depends on completion logic.
+                                 // For now, just continue the outer loop check
+                             }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            System.out.println(Thread.currentThread().getName() + " interrupted while sleeping.");
+                            break; // Exit loop if interrupted
+                        }
+                    }
+                    continue; // Go back to the start of the while loop
+                }
+                 // Check limit *before* processing dequeued URL
+                 // This isn't perfectly atomic across threads but reduces unnecessary work
+                 if (database.getCrawledCount() >= MAX_PAGES_NUMBER) {
+                     // Put URL back? No, just stop processing.
+                     System.out.println(Thread.currentThread().getName() + " reached limit after dequeue, stopping.");
+                     break;
+                 }
+
+
+                // System.out.println(Thread.currentThread().getName() + " Processing: " + url);
+
+                // 2) If visited once before (Double check after dequeue)
+                if (database.isVisited(url)) {
+                    continue;
+                }
+
+                // 3) Robots check
+                if (!RobotChecker.isUrlAllowed(url)) { // Assume RobotChecker is static & thread-safe
+                    // System.out.println(Thread.currentThread().getName() + " -> Robots.txt DISALLOWED");
+                    database.markVisited(url); // Mark as visited to prevent re-checking
+                    continue;
+                }
+
+                // 4) Fetching the document
+                Document doc = getDocument(url);
+                if (doc == null) {
+                    // Fetch failed, don't mark visited
+                    continue;
+                }
+
+                // --- Page processed successfully ---
+                 database.markVisited(url); // Mark visited only AFTER successful fetch
+
+                // 5) Getting its compact string and checking DB
+                String cs = calculateCompactString(doc);
+                 if (cs == null) continue; // Skip if calculation failed
+                if (database.hasCompactString(cs)) {
+                    continue;
+                }
+                database.addCompactString(cs); // Add unique signature
+
+                // 6) Downloading html doc inside a file (Optional)
+                Path savedFilePath = null;
+                try {
+                     String filenameBase = generateFilenameFromUrlPath(url);
+                     String filename = sanitizePathComponent(filenameBase) + ".html"; // Sanitize + extension
+
+                     // Directory strategy (e.g., host name)
+                     URI uri = new URI(url);
+                     String hostDirName = sanitizePathComponent(uri.getHost());
+                     if (hostDirName.isEmpty()) hostDirName = "_unknown_host_";
+
+                     Path storageDir = BASE_STORAGE_PATH.resolve(hostDirName);
+                     Files.createDirectories(storageDir);
+                     Path filePath = storageDir.resolve(filename);
+
+                    String fullHTML = doc.outerHtml();
+                    // System.out.println(Thread.currentThread().getName() + " -> Saving HTML to: " + filePath.toAbsolutePath());
+                    Files.writeString(filePath, fullHTML, StandardCharsets.UTF_8);
+                    savedFilePath = filePath; // Record path only on success
+                } catch (URISyntaxException | IOException | InvalidPathException e) {
+                     System.err.println(Thread.currentThread().getName() + " -> FAILED to save HTML for " + url + ": " + e.getMessage());
+                }
+
+                // 7) Increment the number of crawled Pages (Atomic DB operation)
+                long currentGlobalCount = database.incrementAndGetCrawledCount(); // Use combined method
+                 if (currentGlobalCount == -1) {
+                     System.err.println(Thread.currentThread().getName() + " - Failed to increment page count! Stopping worker.");
+                     break;
+                 }
+                System.out.println(Thread.currentThread().getName() + " -> Processed (" + currentGlobalCount + "/" + MAX_PAGES_NUMBER + "): " + url);
+
+
+                // Add to results lists if saved successfully
+                if (savedFilePath != null) {
+                    links.add(url); // Thread-safe add
+                    paths.add(savedFilePath); // Thread-safe add
+                }
+
+                // Check limit strictly AFTER incrementing
+                 if (currentGlobalCount >= MAX_PAGES_NUMBER) {
+                    System.out.println(Thread.currentThread().getName() + " -> Reached precise page limit! Stopping.");
+                     // Optional: signalShutdown(); // Signal others if using external signal
+                    break; // Exit this worker's loop
+                 }
+
+                // 8) Extract and Enqueue Links
+                Elements linksElements = doc.select("a[href]");
+                for (Element link : linksElements) {
+                     String nextUrlRaw = link.absUrl("href");
+                     if (nextUrlRaw == null || nextUrlRaw.isEmpty() ||
+                         !(nextUrlRaw.toLowerCase().startsWith("http://") || nextUrlRaw.toLowerCase().startsWith("https://"))) {
+                         continue;
+                     }
+                     try {
+                         String nextUrlNormalized = normalizeLink(nextUrlRaw);
+                         if (!database.isVisited(nextUrlNormalized)) {
+                             database.enqueueUrl(nextUrlNormalized); // Enqueue directly
+                         }
+                     } catch (Exception e) { /* Log quietly or ignore normalization errors */ }
+                } // End link extraction loop
+
+            } // End main while loop
+        } catch (Exception e) {
+            System.err.println("!!! UNEXPECTED ERROR in worker thread " + Thread.currentThread().getName() + ": " + e.getMessage());
+            e.printStackTrace();
+            // Optional: signalShutdown();
+        } finally {
+            System.out.println("Worker thread finished: " + Thread.currentThread().getName());
+        }
+    } // End run()
+
+
+    // --- Static Helper Methods ---
+    // (Make sure these are okay as static or refactor)
+    // getDocument, calculateCompactString, normalizeLink, generateFilenameFromUrlPath, saveHtmlDocument, sanitizePathComponent
+    // ... (implementations as before) ...
+
+} // End WebCrawler class
