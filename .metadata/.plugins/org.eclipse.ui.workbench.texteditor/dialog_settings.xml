@@ -6,8 +6,10 @@
 		<item key="wholeword" value="false"/>
 		<item key="incremental" value="false"/>
 		<item key="isRegEx" value="false"/>
-		<item key="selection" value="18"/>
+		<item key="selection" value="System.out.println"/>
 		<list key="findhistory">
+			<item value="System.out.println"/>
+			<item value="link***************"/>
 			<item value="18"/>
 			<item value="cur"/>
 			<item value="curnn"/>
@@ -21,7 +23,6 @@
 			<item value="span"/>
 			<item value="linksQueue"/>
 			<item value="repla"/>
-			<item value="VISITED_URLS_COLLECTION"/>
 		</list>
 		<list key="replacehistory">
 		</list>
