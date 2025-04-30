@@ -1,7 +1,9 @@
 package webCrawler;
 import java.io.*;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,39 +20,167 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.*;
 import org.jsoup.select.Elements;
 
-public class WebCrawler {
+public class WebCrawler implements Runnable {
 	private String start_url;
 	//  REOMVED and using the database's data
 	//	private static Set<String> compactStrings = new HashSet<String>();
 	//	private static Set<String> visitedURLs = new HashSet<String>();
 	//  private static Queue<String> linksQueue = new LinkedList<String>();
 	private static final Pattern INVALID_FILENAME_CHARS = Pattern.compile("[\\\\/:*?\"<>|]");
-	
+	private final int MAX_PAGES_NUMBER = 100;
 	public static List<Path> paths = new LinkedList<>();
     public static List<String> links = new LinkedList<>();
 	
 	private static int crawledPages = 0;
 	private static MongoJava database;
 	private static RobotChecker robotChecker;
+	private static LinkedList<String> seedLinks = new LinkedList<String>();
+	private static boolean extractHyperLinks = true;	// to avoid making multiple reads from database after exceeding maxLimit
 	
-	public WebCrawler(String start_url) {
-		this.start_url = start_url;
-	}
-	
-	public void start() throws IOException {
-//		String html = getDocument(start_url).html();
-//		calculateCompactString(getDocument(start_url));
-//		System.out.println(normalizeLink());
-//		System.out.println(html);
-		database = new MongoJava("mongodb://localhost:27017/","Ndry");
-		robotChecker = new RobotChecker();
-		try {
-			crawl(start_url);
-		} catch (URISyntaxException e) {
-			e.printStackTrace();
+	public WebCrawler(LinkedList<String> links,int pageCount,MongoJava db) {
+		this.crawledPages = pageCount;	// Current page count. If interrupted before, would be > 0
+		this.database = db;
+		this.robotChecker = new RobotChecker();
+		for(String link:links) {
+			database.enqueueUrl(link);
 		}
 	}
 	
+//	public void start() throws IOException {
+//		database = new MongoJava("mongodb://localhost:27017/","Ndry");
+//		robotChecker = new RobotChecker();
+//		try {
+//			crawl(start_url);
+//		} catch (URISyntaxException e) {
+//			e.printStackTrace();
+//		}
+//	}
+	
+	@Override
+	public void run() {
+		String url;
+		String dir = "crawled_data";		
+		while(crawledPages<MAX_PAGES_NUMBER) {
+			// 1) getting link from Database 
+			url = getLinkFromDB();	//a wrapper for dequeuing from DB to handle a case in threads
+			// 2) robots check
+			if(!RobotChecker.isUrlAllowed(url)) {
+				System.out.println("NOT ALLOWED");
+				continue;
+			}
+
+			// 3) if visited once before
+			if(database.isVisited(url)) {// <-- changed after database
+				continue;
+			}
+			// 4) fetching the document
+			Document doc = getDocument(url);
+			if(doc == null) {
+				continue;
+			}
+			
+			// 5) getting its compact string
+			String cs = calculateCompactString(doc);
+			if(database.hasCompactString(cs)) {
+				continue;
+			}
+			
+			// adding the compact string to database
+			// compactStrings.add(cs); <== removed after database
+			database.addCompactString(cs);
+			
+//			// 6) downloading html doc inside a file
+//			try {
+//				// 6.1- creating fileName 
+//				String filename;
+//				filename = generateFilenameFromUrlPath(url);
+//				// 6.2- path to store
+//				Path storageDirectory = Paths.get("D:\\faculty stuff\\2nd year\\2nd term\\projects\\Ndry search engin\\search-engin\\", dir);
+//				// checks if the given path exists or not, if not it creates one and so on.
+//				Files.createDirectories(storageDirectory);
+//				// creates an actual path
+//				Path filePath = storageDirectory.resolve(filename+".html");
+//				
+//				String fullHTML = doc.outerHtml();
+//				System.out.println(filePath);
+//	
+//				// adding the url and path to links and paths url for the indexer (mapping the results to user)
+//				links.add(url);
+//				paths.add(filePath);
+//				
+//				// 6.3- Write the HTML to the file (using UTF-8 encoding)
+//			    Files.writeString(filePath, fullHTML, StandardCharsets.UTF_8);
+//			} catch (URISyntaxException | IOException e) {
+//				// TODO Auto-generated catch block
+//				e.printStackTrace();
+//			}
+			
+			System.out.println(crawledPages+ " Thread "+Thread.currentThread().getId());
+			
+			// log current URL
+	        System.out.println("Crawling: " + url);
+	        
+	        // visitedURLs.add(url); <== removed after database
+	        // 7) Mark it as visited
+	        database.markVisited(url);
+	        
+	        // 8) inc the number of crawled Pages
+//       	 	crawledPages++;
+       	 	crawledPages = database.incrementAndGetCrawledCount();
+//       	 	database.updateCrawledCount(crawledPages);
+       	 	
+	        Elements links = doc.select("a[href]");
+	        if(!extractHyperLinks || database.getQueueCount()>= MAX_PAGES_NUMBER) {
+	        	System.out.println(database.getQueueCount());
+//	        	notifyAll();	// in case of a thread sleeping
+	        	continue;
+	        }
+	        for(Element link:links) {
+	        	 String nextUrl = link.absUrl("href");
+	        	 if (nextUrl == null || nextUrl.isEmpty() ||
+        			 !(nextUrl.toLowerCase().startsWith("http://") ||
+        			  nextUrl.toLowerCase().startsWith("https://"))) {
+    		        // skipping non-standard link
+    		        System.out.println("   Skipping non-HTTP link: " + nextUrl);
+    		        continue; // Skip to the next link
+    		    }
+	        	 // normalizing the link
+	        	 String nextUrlNormalized="";
+	        	 
+				try {
+					nextUrlNormalized = normalizeLink(nextUrl);
+				} catch (URISyntaxException e) {
+					e.printStackTrace();
+				}
+	             // check if nextUrl exists and link hasn't been visited 
+	             if (!nextUrl.isEmpty() && !database.isVisited(nextUrlNormalized)) { 
+	            	 synchronized (this) {
+	                     database.enqueueUrl(nextUrlNormalized);
+	                     notifyAll(); // Wake up waiting threads
+	                 }
+	             }
+	        }
+	        
+		}
+		System.out.println("finished crawling");
+	}
+	
+	private String getLinkFromDB() {
+		synchronized(this) {
+			while(database.isQueueEmpty()) {
+				try {
+					System.out.println("Thread "+Thread.currentThread().getId()+ " is currently waiting for a link to crawler");
+					wait();	// needs a notification to get back to work
+					System.out.println("Thread "+Thread.currentThread().getId()+ " Woke up");
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			return database.dequeueUrl();			
+		}
+	}
+
 	private static Document getDocument(String url) {
 		try {
             // Getting connection response
@@ -101,9 +231,29 @@ public class WebCrawler {
 	}
 	
 	private static String normalizeLink(String url) throws URISyntaxException {
-		URI uri = new URI(url);
-		uri = new URI(uri.getScheme(), uri.getAuthority(), uri.getPath(), null, null);	// normalizing it
-		String normalizedLink = uri.toString();
+		URL initUrl = null;
+		try {
+			initUrl = new URL(url);
+		} catch (MalformedURLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		// extracting url part using URL for better parsing
+		String scheme = initUrl.getProtocol();
+	    String host = initUrl.getHost();
+	    int port = initUrl.getPort(); // Returns -1 if not specified
+	    String path = initUrl.getPath();
+		    
+	    URI normalizedUri = new URI(
+	            scheme.toLowerCase(),  
+	            null,                    
+	            host.toLowerCase(),     
+	            port,                  
+	            path,                    
+	            null,                    
+	            null                     
+	    );
+	    String normalizedLink = normalizedUri.toString();
 		return normalizedLink;
 	}
 	
@@ -138,92 +288,6 @@ public class WebCrawler {
 		return links;
 	}
 	
-	private static void crawl(String url) throws URISyntaxException, IOException {
-		if (!url.startsWith("http://") && !url.startsWith("https://")) {
-			System.err.println("Skipping invalid URL: " + url);
-            return;
-		}
-		String dir = "crawled_data";
-		url = normalizeLink(url);
-		database.enqueueUrl(url);
-		
-		while(!database.isQueueEmpty() && crawledPages<5) {
-			// 1) getting link from database
-			url = database.dequeueUrl();
-			// 2) robots check
-			if(!RobotChecker.isUrlAllowed(url)) {
-				System.out.println("NOT ALLOWED");
-				continue;
-			}
-
-			// 3) if visited once before
-			if(database.isVisited(url)) {// <-- changed after database
-				continue;
-			}
-			// 4) fetching the document
-			Document doc = getDocument(url);
-			if(doc == null) {
-				continue;
-			}
-			
-			// 5) getting its compact string
-			String cs = calculateCompactString(doc);
-			if(database.hasCompactString(cs)) {
-				continue;
-			}
-			
-			// adding the compact string to database
-			// compactStrings.add(cs); <== removed after database
-			database.addCompactString(cs);
-			
-			// 6) downloading html doc inside a file
-			
-			// 6.1- creating fileName 
-			String filename = generateFilenameFromUrlPath(url);
-			System.out.println(filename);
-			// 6.2- path to store
-			Path storageDirectory = Paths.get("D:\\faculty stuff\\2nd year\\2nd term\\projects\\Ndry search engin\\search-engin\\", dir);
-			// checks if the given path exists or not, if not it creates one and so on.
-			Files.createDirectories(storageDirectory);
-			// creates an actual path
-			Path filePath = storageDirectory.resolve(filename+".html");
-			
-			String fullHTML = doc.outerHtml();
-			System.out.println(filePath);
-
-			// adding the url and path to links and paths url for the indexer (mapping the results to user)
-			links.add(url);
-			
-			paths.add(filePath);
-			
-			// 6.3- Write the HTML to the file (using UTF-8 encoding)
-		    Files.writeString(filePath, fullHTML, StandardCharsets.UTF_8);
-			
-			System.out.println(crawledPages);
-			
-			// log current URL
-	        System.out.println("Crawling: " + url);
-	        
-	        // visitedURLs.add(url); <== removed after database
-	        // 7) Mark it as visited
-	        database.markVisited(url);
-	        
-	        // 8) inc the number of crawled Pages
-       	 	crawledPages++;
-	        Elements links = doc.select("a[href]");
-	        for(Element link:links) {
-	        	 String nextUrl = link.absUrl("href");
-	        	 // normalizing the link
-	        	 String nextUrlNormalized = normalizeLink(nextUrl);
-	             // check if nextUrl exists and link hasn't been visited 
-	             if (!nextUrl.isEmpty() && !database.isVisited(nextUrlNormalized)) { 
-	            	 database.enqueueUrl(nextUrlNormalized);
-
-	             }
-	        }
-	        
-		}
-		System.out.println("finished crawling");
-	}
+	
 
 }
