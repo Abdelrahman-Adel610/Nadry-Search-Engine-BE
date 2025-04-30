@@ -28,12 +28,9 @@ build/
 .
 *.iml
 .idea/
-*.classpath
-*.project
 *.settings/
 .settings/
-.classpath
-.project
+
 .metadata/
 bin/
 *.launch
@@ -80,7 +77,6 @@ org.eclipse.*/**
 **/history/**
 **/plugins/**
 **/launches/**
-**/.projects/**
 **/.buildship.core/**
 **/core.resources/**
 **/core.runtime/**
@@ -96,7 +92,6 @@ org.eclipse.*/**
 *~
 *.swp
 *.swo
-.project.~*
 nbproject/
 nbactions.xml
 
