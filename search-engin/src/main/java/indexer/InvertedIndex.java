@@ -173,11 +173,13 @@ public class InvertedIndex {
 
     public static class Posting {
         private final String docId;
+        private final String url; // Added URL field
         private final Map<FieldType, List<Integer>> fieldPositions;
         private double weight = 0.0;
 
-        public Posting(String docId) {
+        public Posting(String docId, String url) {
             this.docId = docId;
+            this.url = url; // Initialize URL
             this.fieldPositions = new EnumMap<>(FieldType.class);
         }
 
@@ -188,6 +190,10 @@ public class InvertedIndex {
 
         public String getDocId() {
             return docId;
+        }
+
+        public String getUrl() { // Added getter for URL
+            return url;
         }
 
         public List<Integer> getPositions() {

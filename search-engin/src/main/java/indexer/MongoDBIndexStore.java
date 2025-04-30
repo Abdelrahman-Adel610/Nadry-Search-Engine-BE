@@ -70,6 +70,7 @@ public class MongoDBIndexStore {
 
             Document postingDoc = new Document()
                 .append("docId", posting.getDocId())
+                .append("url", posting.getUrl()) // Added URL field
                 .append("fieldPositions", fieldPositionsDoc)
                 .append("weight", posting.getWeight());
 
@@ -77,6 +78,7 @@ public class MongoDBIndexStore {
 
             Bson updateExisting = Updates.combine(
                 Updates.set("postings.$[elem].fieldPositions", fieldPositionsDoc),
+                Updates.set("postings.$[elem].url", posting.getUrl()), // Added URL update
                 Updates.set("postings.$[elem].weight", posting.getWeight())
             );
 
@@ -117,11 +119,13 @@ public class MongoDBIndexStore {
                 }
                 Document postingDoc = new Document()
                     .append("docId", posting.getDocId())
+                    .append("url", posting.getUrl()) // Added URL field
                     .append("fieldPositions", fieldPositionsDoc)
                     .append("weight", posting.getWeight());
                 Bson filter = Filters.eq("_id", term);
                 Bson updateExisting = Updates.combine(
                     Updates.set("postings.$[elem].fieldPositions", fieldPositionsDoc),
+                    Updates.set("postings.$[elem].url", posting.getUrl()), // Added URL update
                     Updates.set("postings.$[elem].weight", posting.getWeight())
                 );
                 Document arrayFilter = new Document("elem.docId", posting.getDocId());
@@ -155,9 +159,10 @@ public class MongoDBIndexStore {
                 List<Document> postingDocs = termDoc.getList("postings", Document.class);
                 for (Document postingDoc : postingDocs) {
                     String docId = postingDoc.getString("docId");
+                    String url = postingDoc.getString("url"); // Retrieve URL field
                     Document fieldPositionsDoc = postingDoc.get("fieldPositions", Document.class);
 
-                    Posting posting = new Posting(docId);
+                    Posting posting = new Posting(docId, url); // Pass URL to constructor
                     for (Entry<String, Object> entry : fieldPositionsDoc.entrySet()) {
                         try {
                             FieldType fieldType = FieldType.valueOf(entry.getKey());

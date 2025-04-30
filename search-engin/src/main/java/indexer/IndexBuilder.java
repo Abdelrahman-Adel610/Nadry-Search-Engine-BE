@@ -63,9 +63,9 @@ public class IndexBuilder {
                     System.out.println("  Links: " + doc.getLinks());
 
                     startTime = System.currentTimeMillis();
-                    indexDocumentField(doc.getTitle(), doc.getDocId(), InvertedIndex.FieldType.TITLE);
-                    indexDocumentField(doc.getDescription(), doc.getDocId(), InvertedIndex.FieldType.DESCRIPTION);
-                    indexDocumentField(doc.getContent(), doc.getDocId(), InvertedIndex.FieldType.BODY);
+                    indexDocumentField(doc.getTitle(), doc.getDocId(), urls.get(idx), InvertedIndex.FieldType.TITLE);
+                    indexDocumentField(doc.getDescription(), doc.getDocId(), urls.get(idx), InvertedIndex.FieldType.DESCRIPTION);
+                    indexDocumentField(doc.getContent(), doc.getDocId(), urls.get(idx), InvertedIndex.FieldType.BODY);
                     System.out.println("Indexed document " + doc.getDocId() + " in " +
                                       (System.currentTimeMillis() - startTime) + "ms");
 
@@ -98,10 +98,9 @@ public class IndexBuilder {
 
         System.out.println("Index building complete. Total documents indexed: " + successCount.get());
         System.out.println("Total unique terms in index: " + index.getTerms().size());
-
     }
 
-    private void indexDocumentField(String text, String docId, InvertedIndex.FieldType fieldType) {
+    private void indexDocumentField(String text, String docId, String url, InvertedIndex.FieldType fieldType) {
         if (text == null || text.isEmpty()) {
             return;
         }
@@ -112,7 +111,7 @@ public class IndexBuilder {
         // Create postings for each token
         for (int pos = 0; pos < tokens.size(); pos++) {
             String term = tokens.get(pos);
-            InvertedIndex.Posting posting = termPostings.computeIfAbsent(term, k -> new InvertedIndex.Posting(docId));
+            InvertedIndex.Posting posting = termPostings.computeIfAbsent(term, k -> new InvertedIndex.Posting(docId, url));
             posting.addPosition(pos, fieldType);
         }
 
