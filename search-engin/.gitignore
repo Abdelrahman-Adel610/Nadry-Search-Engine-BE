@@ -138,4 +138,4 @@ tmp/
 .jenv-version
 .java-version
 
-.metadata/*
+*.metadata/*
