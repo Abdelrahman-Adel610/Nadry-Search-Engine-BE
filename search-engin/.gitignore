@@ -1,4 +1,3 @@
-
 # Node modules
 node_modules
 
@@ -11,11 +10,19 @@ logs
 *.log
 npm-debug.log*
 
+# Maven/Gradle build output
+target/
+build/
+
+# Java compiled files
+*.class
+
 # IDE files
-.idea
-.vscode
-*.sublime-project
-*.sublime-workspace
+*.iml
+.idea/
+*.classpath
+*.project
+*.settings/
 
 # OS files
 .DS_Store
