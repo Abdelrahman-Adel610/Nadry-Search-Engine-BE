@@ -176,6 +176,7 @@ public class InvertedIndex {
         private final String url; // Added URL field
         private final Map<FieldType, List<Integer>> fieldPositions;
         private double weight = 0.0;
+        private double popularity_score;
 
         public Posting(String docId, String url) {
             this.docId = docId;
@@ -226,6 +227,14 @@ public class InvertedIndex {
 
         public Set<FieldType> getFieldTypes() {
             return fieldPositions.keySet();
+        }
+        
+        public double GetPopularityScore() {
+        	return popularity_score;
+        }
+    
+        public void SetPopularityScore(double score) {
+        	popularity_score = score;
         }
     }
 }

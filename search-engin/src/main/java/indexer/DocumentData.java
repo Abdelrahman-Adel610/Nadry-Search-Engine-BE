@@ -10,8 +10,9 @@ public class DocumentData {
     private final String content;
     private final List<String> links;
     private final int totalWords;
+    private final double popularityScore;
 
-    public DocumentData(String docId, String url, String title, String description, String content, List<String> links, int totalWords) {
+    public DocumentData(String docId, String url, String title, String description, String content, List<String> links, int totalWords, double popularityScore) {
         this.docId = docId;
         this.url = url;
         this.title = title;
@@ -19,6 +20,7 @@ public class DocumentData {
         this.content = content;
         this.links = links;
         this.totalWords = totalWords;
+        this.popularityScore = popularityScore;
     }
 
     public String getDocId() {

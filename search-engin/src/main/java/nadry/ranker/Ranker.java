@@ -7,36 +7,57 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import indexer.InvertedIndex.Posting;
+
 public final class Ranker {
+	public class QueryDocument{
+		String url;
+		Map<String, Integer> termFrequency;
+		double popularityScore;
+		
+		public QueryDocument(String url, Map<String, Integer> termFrequency, double popularityScore) {
+			this.url = url;
+			this.termFrequency =termFrequency;
+			this.popularityScore = popularityScore;
+		}
+		
+		public Map<String, Integer> GetTermFrequency(){
+			return termFrequency;
+		}
+		
+		public Double GetPopularityScore() {
+			return popularityScore;
+		}
+	}
 	
 	/*
 	 * query Bag is a map that contains frequencies of query phrase
 	 * pages Bag is a list of map that contains frequencies of query phrase
 	 * @returns sorted pages
 	 */
-	public static  ArrayList<Map<String, Integer>> Rank(Map<String, Integer> queryBag, ArrayList<Map<String, Integer>> pagesBag) {	
-		ArrayList<Double> totalScores = new ArrayList<Double>(pagesBag.size());
-		
+	public static ArrayList<QueryDocument> Rank(Map<String, Integer> queryBag, ArrayList<QueryDocument> pagesBag) {
+				
 		ArrayList<Double> relevanceScores = CalculatePopularityScore(queryBag, pagesBag);
 		
 		ArrayList<Double> popularityScores = new ArrayList<Double>();
-		//Todo: CalculatePopularityScore();
 		
-		
-		List<Map.Entry<Double, Map<String, Integer>>> scoredDocs = new ArrayList<>();
+		List<Map.Entry<Double, QueryDocument>> scoredDocs = new ArrayList<>();
 
 	    for (int i = 0; i < pagesBag.size(); i++) {
-	        double totalScore = relevanceScores.get(i) * 0.7 + popularityScores.get(i) * 0.3;
-	        Map<String, Integer> doc = pagesBag.get(i);
-	        scoredDocs.add(new AbstractMap.SimpleEntry<>(totalScore, doc));
+	    	double relevance = relevanceScores.get(i);
+	    	double popularity = pagesBag.get(i).GetPopularityScore();
+	    	
+	        double totalScore = relevance * 0.7 + popularity * 0.3;
+	        
+	        scoredDocs.add(new AbstractMap.SimpleEntry<>(totalScore, pagesBag.get(i)));
 	    }
 
 	    // Sort by totalScore descending
 	    scoredDocs.sort((a, b) -> Double.compare(b.getKey(), a.getKey()));
 
 	    // Extract sorted documents
-	    ArrayList<Map<String, Integer>> sortedDocs = new ArrayList<>();
-	    for (Map.Entry<Double, Map<String, Integer>> entry : scoredDocs) {
+	    ArrayList<QueryDocument> sortedDocs = new ArrayList<>();
+	    for (Map.Entry<Double, QueryDocument> entry : scoredDocs) {
 	        sortedDocs.add(entry.getValue());
 	    }
 
@@ -47,12 +68,13 @@ public final class Ranker {
 	 * query Bag is a map that contains frequencies of query phrase
 	 * pages Bag is a list of map that contains frequencies of query phrase
 	 */
-	public static ArrayList<Double> CalculatePopularityScore(Map<String, Integer> queryBag, ArrayList<Map<String, Integer>> pagesBag) {
+	public static ArrayList<Double> CalculatePopularityScore(Map<String, Integer> queryBag, ArrayList<QueryDocument> pagesBag) {
 	    int N = pagesBag.size(); // total documents
 
 	    // Compute document frequency DF for each term
 	    Map<String, Integer> docFreq = new HashMap<>();
-	    for (Map<String, Integer> doc : pagesBag) {
+	    for (QueryDocument queryDoc : pagesBag) {
+	    	Map<String, Integer> doc = queryDoc.GetTermFrequency();
 	        for (String term : doc.keySet()) {
 	            docFreq.put(term, docFreq.getOrDefault(term, 0) + 1);
 	        }
@@ -67,7 +89,7 @@ public final class Ranker {
 	    ArrayList<Double> scores = new ArrayList<Double>();
 	    // Compare each document with the query
 	    for (int i = 0; i < pagesBag.size(); i++) {
-	        Map<String, Integer> doc = pagesBag.get(i);
+	        Map<String, Integer> doc = pagesBag.get(i).GetTermFrequency();
 
 	        // Document TF-IDF
 	        Map<String, Double> docTFIDF = calculateTFIDF(doc, docFreq, N);

@@ -10,6 +10,7 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.model.WriteModel;
+import com.mongodb.client.result.UpdateResult;
 import com.mongodb.client.model.UpdateOneModel;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -28,7 +29,7 @@ public class MongoDBIndexStore {
     private final MongoCollection<Document> collection;
     private final MongoCollection<Document> documentsCollection;
 
-    public MongoDBIndexStore(String connectionString, String databaseName, String collectionName) {
+	public MongoDBIndexStore(String connectionString, String databaseName, String collectionName) {
         if (connectionString == null || connectionString.isEmpty()) {
             throw new IllegalArgumentException("Connection string cannot be null or empty");
         }
@@ -78,7 +79,8 @@ public class MongoDBIndexStore {
                 doc.getString("description"),
                 doc.getString("content"),
                 doc.getList("links", String.class),
-                doc.getInteger("totalWords")
+                doc.getInteger("totalWords"),
+                doc.getInteger("popularity_score")
             );
             System.out.println("Retrieved document: " + docId);
             return documentData;
@@ -88,6 +90,62 @@ public class MongoDBIndexStore {
             return null;
         }
     }
+    
+        
+    public void updateDocumentScores(Map<String, Double> scoresMap) {
+        checkClientState();
+        try {
+            System.out.println("Updating document scores...");
+            for (Map.Entry<String, Double> entry : scoresMap.entrySet()) {
+                String docId = entry.getKey();
+                double score = entry.getValue();
+
+                UpdateResult result = documentsCollection.updateOne(
+                    Filters.eq("url", docId),
+                    Updates.set("popularity_score", score)
+                );
+
+                if (result.getMatchedCount() > 0) {
+                    System.out.println("Updated document " + docId + " with score " + score);
+                } else {
+                    System.out.println("No document found with ID: " + docId);
+                }
+            }
+            System.out.println("Finished updating scores.");
+        } catch (Exception e) {
+            System.err.println("MongoDB error while updating scores: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    
+    public List<DocumentData> getAllDocuments() {
+        checkClientState();
+        List<DocumentData> documentsList = new ArrayList<>();
+        try {
+            System.out.println("Retrieving all documents from Documents collection...");
+            for (Document doc : documentsCollection.find()) {
+                DocumentData documentData = new DocumentData(
+                    doc.getString("_id"),
+                    doc.getString("url"),
+                    doc.getString("title"),
+                    doc.getString("description"),
+                    doc.getString("content"),
+                    doc.getList("links", String.class),
+                    doc.getInteger("totalWords"),
+                    doc.getInteger("popularity_score")
+                );
+                documentsList.add(documentData);
+            }
+            System.out.println("Retrieved " + documentsList.size() + " documents.");
+            return documentsList;
+        } catch (Exception e) {
+            System.err.println("MongoDB error retrieving documents: " + e.getMessage());
+            e.printStackTrace();
+            return documentsList; // return empty list instead of null
+        }
+    }
+
 
     public void saveDocument(String docId, String url, String title, String description, String content, List<String> links, int totalWords) {
         checkClientState();
@@ -217,7 +275,9 @@ public class MongoDBIndexStore {
                 for (Document postingDoc : postingDocs) {
                     String docId = postingDoc.getString("docId");
                     String url = postingDoc.getString("url");
+                    double popularityScore = postingDoc.getDouble("popularity_score");
                     Document fieldPositionsDoc = postingDoc.get("fieldPositions", Document.class);
+                    
 
                     Posting posting = new Posting(docId, url);
                     for (Entry<String, Object> entry : fieldPositionsDoc.entrySet()) {
