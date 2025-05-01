@@ -80,7 +80,7 @@ public class MongoDBIndexStore {
                 doc.getString("content"),
                 doc.getList("links", String.class),
                 doc.getInteger("totalWords"),
-                doc.getInteger("popularity_score")
+                doc.getDouble("popularity_score")
             );
             System.out.println("Retrieved document: " + docId);
             return documentData;
@@ -133,7 +133,7 @@ public class MongoDBIndexStore {
                     doc.getString("content"),
                     doc.getList("links", String.class),
                     doc.getInteger("totalWords"),
-                    doc.getInteger("popularity_score")
+                    doc.getDouble("popularity_score")
                 );
                 documentsList.add(documentData);
             }
@@ -156,7 +156,8 @@ public class MongoDBIndexStore {
                 .append("description", description)
                 .append("content", content)
                 .append("links", links)
-                .append("totalWords", totalWords);
+                .append("totalWords", totalWords)
+            	.append("popularity_score",(Double)1.0);
 
             System.out.println("Saving document to Documents collection: " + docId);
             Bson filter = Filters.eq("_id", docId);
