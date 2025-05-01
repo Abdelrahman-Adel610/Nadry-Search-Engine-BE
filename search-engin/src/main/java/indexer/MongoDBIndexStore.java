@@ -20,6 +20,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import indexer.InvertedIndex.FieldType;
 import indexer.InvertedIndex.Posting;
 
@@ -29,7 +34,7 @@ public class MongoDBIndexStore {
     private final MongoCollection<Document> collection;
     private final MongoCollection<Document> documentsCollection;
 
-	public MongoDBIndexStore(String connectionString, String databaseName, String collectionName) {
+    public MongoDBIndexStore(String connectionString, String databaseName, String collectionName) {
         if (connectionString == null || connectionString.isEmpty()) {
             throw new IllegalArgumentException("Connection string cannot be null or empty");
         }
@@ -90,8 +95,7 @@ public class MongoDBIndexStore {
             return null;
         }
     }
-    
-        
+
     public void updateDocumentScores(Map<String, Double> scoresMap) {
         checkClientState();
         try {
@@ -118,7 +122,6 @@ public class MongoDBIndexStore {
         }
     }
 
-    
     public List<DocumentData> getAllDocuments() {
         checkClientState();
         List<DocumentData> documentsList = new ArrayList<>();
@@ -146,7 +149,6 @@ public class MongoDBIndexStore {
         }
     }
 
-
     public void saveDocument(String docId, String url, String title, String description, String content, List<String> links, int totalWords) {
         checkClientState();
         try {
@@ -157,7 +159,7 @@ public class MongoDBIndexStore {
                 .append("content", content)
                 .append("links", links)
                 .append("totalWords", totalWords)
-            	.append("popularity_score",(Double)1.0);
+                .append("popularity_score", (Double) 1.0);
 
             System.out.println("Saving document to Documents collection: " + docId);
             Bson filter = Filters.eq("_id", docId);
@@ -270,15 +272,13 @@ public class MongoDBIndexStore {
         try {
             List<Posting> postings = new ArrayList<>();
             Document termDoc = collection.find(Filters.eq("_id", term)).first();
-
+            System.out.println("Raw document for term " + term + ": " + termDoc); // Debug
             if (termDoc != null) {
                 List<Document> postingDocs = termDoc.getList("postings", Document.class);
                 for (Document postingDoc : postingDocs) {
                     String docId = postingDoc.getString("docId");
                     String url = postingDoc.getString("url");
-                    double popularityScore = postingDoc.getDouble("popularity_score");
                     Document fieldPositionsDoc = postingDoc.get("fieldPositions", Document.class);
-                    
 
                     Posting posting = new Posting(docId, url);
                     for (Entry<String, Object> entry : fieldPositionsDoc.entrySet()) {
@@ -303,6 +303,53 @@ public class MongoDBIndexStore {
             e.printStackTrace();
             return Collections.emptyList();
         }
+    }
+
+    public Map<String, List<Posting>> getPostingsForTerms(List<String> terms) {
+        checkClientState();
+        Map<String, List<Posting>> results = new ConcurrentHashMap<>();
+        int threadPoolSize = Math.min(terms.size(), Runtime.getRuntime().availableProcessors() * 2);
+        ExecutorService executor = Executors.newFixedThreadPool(threadPoolSize);
+
+        try {
+            List<Future<Void>> futures = new ArrayList<>();
+            for (String term : terms) {
+                futures.add(executor.submit(() -> {
+                    try {
+                        List<Posting> postings = getPostings(term);
+                        if (!postings.isEmpty()) {
+                            results.put(term, postings);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Error retrieving postings for term " + term + ": " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    return null;
+                }));
+            }
+
+            // Wait for all tasks to complete
+            for (Future<Void> future : futures) {
+                try {
+                    future.get(10, TimeUnit.SECONDS); // Timeout after 10 seconds per task
+                } catch (Exception e) {
+                    System.err.println("Error in thread execution: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+            System.out.println("Retrieved postings for " + results.size() + " terms.");
+        } finally {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+        return results;
     }
 
     public Set<String> getTerms() {

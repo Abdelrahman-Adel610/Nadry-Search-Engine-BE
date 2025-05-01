@@ -5,12 +5,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class Main {
     public static void main(String[] args) {
@@ -46,7 +50,6 @@ public class Main {
             docIds[0] = "7f8e911cc1c69b266417bc92e7e3fddf048aac7ef16e132632bc5c2404440fbf";
             docIds[1] = "c7176b8dd0f20a033403187669450166549e2e317a5a9c244410cf01cfb0b6a4";
             docIds[2] = "0ec75132de7d6ed2673b2df67c62781d30c91abc942fea5a6fb50449dc73f4d3";
-
 
             // MongoDB configuration
             String mongoConnectionString = System.getenv("MONGO_URI") != null
