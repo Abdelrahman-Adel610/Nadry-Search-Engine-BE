@@ -133,7 +133,10 @@ public class WebCrawler implements Runnable {
 	        // 8) inc the number of crawled Pages
 //       	 	crawledPages++;
        	 	crawledPages = database.incrementAndGetCrawledCount();
-//       	 	database.updateCrawledCount(crawledPages);
+
+					// 9) adding the html to the database to be indexed
+					database.addCrawledPage(url,doc.html());
+
        	 	if(database.getQueueCount()<1000) {
        	 		extractHyperLinks = true;
        	 	}

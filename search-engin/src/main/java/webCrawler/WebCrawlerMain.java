@@ -1,6 +1,7 @@
 package webCrawler;
 import java.io.IOException;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Scanner;
 
 public class WebCrawlerMain {
@@ -10,8 +11,14 @@ public class WebCrawlerMain {
 		String url = "https://en.wikipedia.org/wiki/Wiki";
 		LinkedList<String> seedLinks = new LinkedList<String>();
 		MongoJava database = new MongoJava("mongodb://localhost:27017/","Ndry");
-		int pageCount = database.getCrawledCount();
-
+		// CrawlerWrapper crawler = new CrawlerWrapper(database);
+		// List<String> docs  = crawler.getCrawledDocuments();
+    // for(String doc : docs) {
+			//   System.out.println(doc);
+			//   System.out.println("--------------------------------------------------");
+			// }
+			// System.out.println("Number of crawled documents: " + docs.size());
+			int pageCount = database.getCrawledCount();
 		if(pageCount>=MAX_PAGES_NUMBER || pageCount==0) {
 			// means that it either finished crawling once before or it didn't start at all
 			pageCount = 0;
