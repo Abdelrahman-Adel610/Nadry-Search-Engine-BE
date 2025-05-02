@@ -3,21 +3,32 @@ class SearchService {
     this.tokenize = options.tokenize || ((text) => text.split(" "));
     // Get search function if provided, otherwise create empty array fallback
     this.search_java = options.search || ((query) => []);
+    // Get phrase search function if provided, otherwise create empty array fallback
+    this.phraseSearch_java = options.phraseSearch || ((phrase) => []);
   }
 
-  async search(query, page, limit) {
-    console.log(`SearchService: Calling Java search for query "${query}"`);
+  async search(query, page, limit, isPhraseSearch) {
+    let searchResults;
+    if (isPhraseSearch) {
+      console.log(
+        `SearchService: Calling Java phraseSearch for phrase "${query}"`
+      );
+      searchResults = this.phraseSearch_java(query); // Call phrase search
+    } else {
+      console.log(`SearchService: Calling Java search for query "${query}"`);
+      searchResults = this.search_java(query); // Call regular search
+    }
 
-    // Use Java search function instead of mock implementation
-    const searchResults = this.search_java(query); // This calls tokenizer-bridge.search
     console.log(
-      `SearchService: Received ${searchResults.length} results from Java search engine`
+      `SearchService: Received ${searchResults.length} results from Java (${
+        isPhraseSearch ? "phrase" : "regular"
+      } search)`
     );
     // Log the actual results received for debugging
     console.log("SearchService: Actual results received:", searchResults);
 
-    // Define tokens by calling the tokenizer
-    const tokens = this.tokenize(query);
+    // Define tokens by calling the tokenizer (using the original full query for context if needed)
+    const tokens = this.tokenize(query); // Tokenize the input query/phrase
 
     return {
       results: searchResults, // The actual results from Java

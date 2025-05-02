@@ -217,10 +217,92 @@ function search(query) {
   }
 }
 
+/**
+ * Search for documents matching an exact phrase using the Java search engine
+ * @param {string} phrase - The exact phrase to search for
+ * @returns {Array} - Array of search results with document URLs and scores
+ */
+function phraseSearch(phrase) {
+  if (!phrase || typeof phrase !== "string") {
+    console.warn(`Invalid phrase provided to phraseSearch: ${phrase}`);
+    return [];
+  }
+
+  try {
+    // Make sure we're using the Java SearchWrapper
+    if (tokenizerType === "JavaSearchWrapper") {
+      console.log(
+        `tokenizer-bridge: Calling Java phraseSearchSync for phrase "${phrase}"`
+      );
+      // Call the phraseSearch method from the Java SearchWrapper
+      const javaResults = tokenizerInstance.phraseSearchSync(phrase); // Use phraseSearchSync
+
+      // --- Debugging ---
+      console.log("tokenizer-bridge: Raw javaResults (phrase):", javaResults);
+      if (javaResults && typeof javaResults.sizeSync === "function") {
+        console.log(
+          "tokenizer-bridge: javaResults.sizeSync() (phrase):",
+          javaResults.sizeSync()
+        );
+      } else {
+        console.log(
+          "tokenizer-bridge: javaResults (phrase) does not have a sizeSync method or is null/undefined."
+        );
+      }
+      // --- End Debugging ---
+
+      // Convert Java search results to JavaScript array
+      const jsResults = [];
+      if (javaResults && typeof javaResults.sizeSync === "function") {
+        const size = javaResults.sizeSync();
+        for (let i = 0; i < size; i++) {
+          const javaResult = javaResults.getSync(i);
+          // Convert Java Map to JavaScript object
+          const result = {};
+          if (javaResult && typeof javaResult.keySetSync === "function") {
+            const keysSet = javaResult.keySetSync();
+            const keys = keysSet.toArraySync();
+            for (let j = 0; j < keys.length; j++) {
+              const key = String(keys[j]);
+              const value = javaResult.getSync(keys[j]);
+              result[key] = value;
+            }
+            jsResults.push(result);
+          } else {
+            console.warn(
+              `tokenizer-bridge: Invalid javaResult (phrase) at index ${i}:`,
+              javaResult
+            );
+          }
+        }
+      } else {
+        console.warn(
+          "tokenizer-bridge: Received invalid javaResults object from phraseSearchSync:",
+          javaResults
+        );
+      }
+
+      console.log(
+        `tokenizer-bridge: Converted ${jsResults.length} phrase results for phrase "${phrase}"`
+      );
+      return jsResults;
+    } else {
+      console.warn(
+        "Phrase search functionality requires JavaSearchWrapper, but using fallback tokenizer"
+      );
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error in tokenizer-bridge phraseSearch:`, error);
+    return []; // Return empty array on error
+  }
+}
+
 console.log(`Tokenizer bridge initialized with ${tokenizerType} tokenizer`);
 
 module.exports = {
   tokenize,
   search,
+  phraseSearch, // Export the new function
   tokenizerType,
 };

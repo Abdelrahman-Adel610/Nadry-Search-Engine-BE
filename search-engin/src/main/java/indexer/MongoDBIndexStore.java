@@ -7,6 +7,7 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoCursor; // Add this import for MongoCursor
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
@@ -43,6 +44,7 @@ public class MongoDBIndexStore {
     private final MongoDatabase database;
     private final MongoCollection<Document> collection;
     private final MongoCollection<Document> documentsCollection;
+    private static final String DOCUMENTS_COLLECTION_NAME = "Documents"; // Define collection name
 
     public MongoDBIndexStore(String connectionString, String databaseName, String collectionName) {
         if (connectionString == null || connectionString.isEmpty()) {
@@ -458,5 +460,38 @@ public class MongoDBIndexStore {
             System.err.println("MongoDB client is not open or server is unreachable: " + e.getMessage());
             throw new IllegalStateException("MongoDB client is not in an open state", e);
         }
+    }
+
+    /**
+     * Retrieves document details (URL, title, description) for a list of document IDs.
+     *
+     * @param docIds List of document IDs to fetch details for.
+     * @return A Map where keys are docIds and values are Maps containing "url", "title", and "description".
+     */
+    public Map<String, Map<String, Object>> getDocumentsByIds(List<String> docIds) {
+        Map<String, Map<String, Object>> results = new HashMap<>();
+        if (docIds == null || docIds.isEmpty()) {
+            return results;
+        }
+
+        MongoCollection<Document> collection = database.getCollection(DOCUMENTS_COLLECTION_NAME);
+        Bson filter = Filters.in("_id", docIds); // Filter by document IDs
+
+        try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
+            while (cursor.hasNext()) {
+                Document doc = cursor.next();
+                String docId = doc.getString("_id");
+                Map<String, Object> details = new HashMap<>();
+                details.put("url", doc.getString("url"));
+                details.put("title", doc.getString("title"));
+                details.put("description", doc.getString("description"));
+                // Add other fields if needed
+                results.put(docId, details);
+            }
+        } catch (Exception e) {
+            System.err.println("Error fetching documents by IDs from MongoDB: " + e.getMessage());
+            // Handle exception appropriately, maybe log it
+        }
+        return results;
     }
 }

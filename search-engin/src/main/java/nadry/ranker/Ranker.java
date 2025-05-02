@@ -11,6 +11,8 @@ import indexer.InvertedIndex.Posting;
 import indexer.MongoDBIndexStore;
 
 public class Ranker {
+	private static final String CONNECTION_STRING = "mongodb+srv://admin:admin@cluster0.wtcajo8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+
 	MongoDBIndexStore db;
 	public Ranker(String connection_string) {
 		db = new MongoDBIndexStore(connection_string, "search_engine", "inverted_index");

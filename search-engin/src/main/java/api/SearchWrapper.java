@@ -29,6 +29,7 @@ public class SearchWrapper {
     private final String databaseName;
     private final String collectionName;
     private final nadry.ranker.Ranker ranker; // Add Ranker instance
+    private final MongoDBIndexStore mongoStore; // Add MongoDBIndexStore instance
 
     /**
      * Constructor that initializes the tokenizer with a new StopWordFilter
@@ -36,9 +37,7 @@ public class SearchWrapper {
     public SearchWrapper() {
         try {
             // MongoDB configuration - get from environment or use default
-            this.mongoConnectionString = System.getenv("MONGO_URI") != null
-                ? System.getenv("MONGO_URI")
-                : "mongodb://localhost:27017/search_engine";
+            this.mongoConnectionString =  "mongodb+srv://admin:admin@cluster0.wtcajo8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
             this.databaseName = "search_engine";
             this.collectionName = "inverted_index";
             
@@ -47,6 +46,7 @@ public class SearchWrapper {
             this.index = new InvertedIndex(mongoConnectionString, databaseName, collectionName);
             this.ranker = new nadry.ranker.Ranker(mongoConnectionString); // Initialize Ranker
         } catch (Exception e) {
+            logger.error("Failed to initialize SearchWrapper", e); // Log error
             throw new RuntimeException("Failed to initialize SearchWrapper", e);
         }
     }
@@ -111,8 +111,34 @@ public class SearchWrapper {
                     }
                 }
                 
-                // Rank results based on weighted term frequency and field weights
-                List<Map<String, Object>> rankedResults = rankResults(termPostings, queryTokens);
+                // Create queryBag for ranking
+                Map<String, Integer> queryBag = new HashMap<>();
+                for (String token : queryTokens) {
+                    queryBag.merge(token, 1, Integer::sum);
+                }
+
+                // Create pagesBag for ranking
+                Map<String, Map<String, Integer>> docTermFrequencies = new HashMap<>();
+                Map<String, String> docUrls = new HashMap<>(); // Store URLs by docId
+
+                // Process each posting
+                for (Map.Entry<String, List<Posting>> entry : termPostings.entrySet()) {
+                    String term = entry.getKey();
+                    List<Posting> postings = entry.getValue();
+                    for (Posting posting : postings) {
+                        String docId = posting.getDocId();
+                        String url = posting.getUrl();
+                        docUrls.putIfAbsent(docId, url);
+                        
+                        // Add term frequency to document
+                        docTermFrequencies.computeIfAbsent(docId, k -> new HashMap<>())
+                                          .merge(term, posting.getFrequency(), Integer::sum);
+                    }
+                }
+
+                // Use the helper method to rank and format results
+                List<Map<String, Object>> rankedResults = rankAndFormatResults(
+                    queryTokens, docTermFrequencies, docUrls);
 
                 return rankedResults;
             } finally {
@@ -134,71 +160,200 @@ public class SearchWrapper {
     }
 
     /**
-     * Rank search results using nadry.ranker.Ranker
+     * Search the index for an exact phrase match.
      * 
-     * @param termPostings Map of terms to their posting lists
-     * @param queryTokens Array of query tokens
-     * @return List of ranked results as maps
+     * @param phrase The exact phrase to search for.
+     * @return List of search results containing the phrase.
      */
-    private List<Map<String, Object>> rankResults(Map<String, List<Posting>> termPostings, String[] queryTokens) {
+    public List<Map<String, Object>> phraseSearch(String phrase) {
+        logger.info("Starting phrase search for: \"{}\"", phrase);
+     
+        List<Map<String, Object>> results = new ArrayList<>();
         
-        // 1. Create queryBag (term frequencies for the query)
+        //Phrase is Tokenized
+        String[] phraseTokens = tokenize(phrase); 
+        //All the phrase parts are stopping words
+        if (phraseTokens.length == 0) {
+            logger.warn("Phrase tokenization resulted in zero tokens.");
+            return Collections.emptyList();
+        }
+        
+        
+        // If only one token, delegate to regular search
+        if (phraseTokens.length == 1) {
+            logger.info("Phrase has only one token, delegating to regular search.");
+            return search(phraseTokens[0]);
+        }
+
+        // Get postings for the first term
+        List<Posting> firstTermPostings = index.getPostings(phraseTokens[0]); 
+
+        // if first term doesn't exist anyway return EMPTY LIST
+        if (firstTermPostings.isEmpty()) {
+            logger.info("No postings found for the first term: {}", phraseTokens[0]);
+            return Collections.emptyList();
+        }
+
+        // Map to store potential matches <DocId, List<PotentialMatch>>
+        Map<String, List<PotentialMatch>> potentialMatches = new HashMap<>();
+
+        // Populate potential matches based on the first term
+        for (Posting p : firstTermPostings) {
+            for (FieldType field : p.getFieldTypes()) {
+                for (int pos : p.getPositions(field)) {
+                    potentialMatches.computeIfAbsent(p.getDocId(), k -> new ArrayList<>())
+                                    .add(new PotentialMatch(p.getUrl(), field, pos));
+                }
+            }
+        }
+        
+        // DEBUUUUUUUUUUUUUUGGGGGGGGGG LOG
+{        StringBuilder sb = new StringBuilder();
+        sb.append("\n==== POTENTIAL MATCHES DETAILS ====\n");
+        potentialMatches.forEach((docId, matches) -> {
+            sb.append("  DocID: ").append(docId).append("\n");
+            sb.append("    URL: ").append(matches.isEmpty() ? "N/A" : matches.get(0).url).append("\n");
+            sb.append("    Total Matches: ").append(matches.size()).append("\n");
+            
+            // Print each match individually
+            int matchCounter = 1;
+            for (PotentialMatch match : matches) {
+                sb.append("    Match #").append(matchCounter++).append(": ")
+                  .append("Field=").append(match.field)
+                  .append(", Position=").append(match.position)
+                  .append("\n");
+            }
+        });
+        sb.append("====================================\n");
+        logger.info(sb.toString()); // Changed to INFO level to ensure visibility
+        
+        logger.info("Initial potential matches based on first term: {}", potentialMatches.size());}
+
+        // DEBUUUUUUUUUUUUUUGGGGGGGGGG LOG
+
+
+        
+        // Check subsequent terms
+        for (int i = 1; i < phraseTokens.length; i++) {
+            String currentTerm = phraseTokens[i];
+            List<Posting> currentTermPostings = index.getPostings(currentTerm);
+            Map<String, List<PotentialMatch>> nextPotentialMatches = new HashMap<>();
+
+            for (Posting p : currentTermPostings) {
+                String docId = p.getDocId();
+                if (potentialMatches.containsKey(docId)) {
+                    List<PotentialMatch> existingMatches = potentialMatches.get(docId);
+                    for (PotentialMatch match : existingMatches) {
+                        // Check if the current term appears in the *same field* at the *next position*
+                        if (p.getFieldTypes().contains(match.field)) {
+                            for (int currentPos : p.getPositions(match.field)) {
+                                if (currentPos == match.position + 1) {
+                                    // Found a consecutive term, update the potential match's position
+                                    nextPotentialMatches.computeIfAbsent(docId, k -> new ArrayList<>())
+                                                        .add(new PotentialMatch(match.url, match.field, currentPos));
+                                    break; // Move to the next potential match for this docId
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            potentialMatches = nextPotentialMatches; // Update potential matches for the next iteration
+            logger.debug("Potential matches after term '{}': {}", currentTerm, potentialMatches.size());
+            if (potentialMatches.isEmpty()) {
+                logger.info("No potential matches left after term: {}", currentTerm);
+                break; // No need to check further terms if no matches remain
+            }
+        }
+
+        // Collect final results from remaining potential matches
+        Set<String> matchedDocIds = potentialMatches.keySet();
+        logger.info("Found {} documents containing the exact phrase.", matchedDocIds.size());
+
+        // If we have matches, create mappings for ranking
+        if (!matchedDocIds.isEmpty()) {
+            // Create mappings from matched documents
+            Map<String, Map<String, Integer>> docTermFrequencies = new HashMap<>();
+            Map<String, String> docUrls = new HashMap<>();
+            
+            // Populate term frequencies (all terms in phrase have frequency 1)
+            for (String docId : matchedDocIds) {
+                Map<String, Integer> docTerms = new HashMap<>();
+                for (String token : phraseTokens) {
+                    docTerms.put(token, 1);
+                }
+                String url = potentialMatches.get(docId).get(0).url;
+                docTermFrequencies.put(docId, docTerms);
+                docUrls.put(docId, url);
+            }
+            
+            // Use helper method to rank and format results
+            logger.info("Ranking {} documents that match the phrase", matchedDocIds.size());
+            results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
+        }
+
+        logger.info("Phrase search completed. Returning {} results.", results.size());
+        return results;
+    }
+
+    /**
+     * Helper method to rank documents and format the results
+     * 
+     * @param queryTokens Array of query tokens
+     * @param docTermFrequencies Map of document IDs to their term frequency maps
+     * @param docUrls Map of document IDs to their URLs
+     * @return List of formatted search results
+     */
+    private List<Map<String, Object>> rankAndFormatResults(
+            String[] queryTokens, 
+            Map<String, Map<String, Integer>> docTermFrequencies, 
+            Map<String, String> docUrls) {
+        
+        // Create query bag with frequency counts
         Map<String, Integer> queryBag = new HashMap<>();
         for (String token : queryTokens) {
             queryBag.merge(token, 1, Integer::sum);
         }
-
-        // 2. Create pagesBag (List of QueryDocument)
-        Map<String, Map<String, Integer>> docTermFrequencies = new HashMap<>();
-        Map<String, String> docUrls = new HashMap<>(); // To store URL per docId
-
-        for (Map.Entry<String, List<Posting>> entry : termPostings.entrySet()) {
-            String term = entry.getKey();
-            List<Posting> postings = entry.getValue();
-            for (Posting posting : postings) {
-                String docId = posting.getDocId();
-                String url = posting.getUrl();
-                docUrls.putIfAbsent(docId, url); // Store URL
-
-                // Get frequency of the current term in this document
-                int frequency = posting.getFrequency(); // Total frequency across all fields for this term in this doc
-
-                // Add/Update term frequency for the document
-                docTermFrequencies.computeIfAbsent(docId, k -> new HashMap<>())
-                                  .merge(term, frequency, Integer::sum);
-            }
-        }
-
+        
+        // Create documents for ranking
         List<QueryDocument> pagesBag = new ArrayList<>();
         for (Map.Entry<String, Map<String, Integer>> entry : docTermFrequencies.entrySet()) {
-            String docId = entry.getKey();
-            String url = docUrls.get(docId); // Retrieve URL
-            Map<String, Integer> termFreqMap = entry.getValue();
-            // Note: QueryDocument constructor doesn't take docId, only URL.
-            // We assume the URL is the primary identifier needed by the Ranker's DB interaction.
+            String url = docUrls.get(entry.getKey());
             if (url != null) {
-                 pagesBag.add(new QueryDocument(url, termFreqMap));
-            } else {
+                pagesBag.add(new QueryDocument(url, entry.getValue()));
             }
         }
-
+        
         if (pagesBag.isEmpty()) {
             return Collections.emptyList();
         }
-
-        // 3. Call the Ranker
-        ArrayList<QueryDocument> sortedDocs = ranker.Rank(queryBag, pagesBag);
-
-        // 4. Transform sortedDocs back to List<Map<String, Object>> including title and description
-        return sortedDocs.stream()
+        
+        // Rank documents
+        ArrayList<QueryDocument> rankedDocs = ranker.Rank(queryBag, pagesBag);
+        
+        // Convert to result format
+        return rankedDocs.stream()
             .map(doc -> {
                 Map<String, Object> result = new HashMap<>();
-                result.put("url", doc.GetURL()); 
-                result.put("score", doc.getScore()); 
-                result.put("title", doc.getTitle()); // Add title
-                result.put("description", doc.getDescription()); // Add description
+                result.put("url", doc.GetURL());
+                result.put("score", doc.getScore());
+                result.put("title", doc.getTitle());
+                result.put("description", doc.getDescription());
                 return result;
             })
             .collect(Collectors.toList());
+    }
+
+    // Helper class to track potential phrase matches
+    private static class PotentialMatch {
+        final String url;
+        final FieldType field;
+        final int position; // Position of the *last* matched term in the sequence
+
+        PotentialMatch(String url, FieldType field, int position) {
+            this.url = url;
+            this.field = field;
+            this.position = position;
+        }
     }
 }
