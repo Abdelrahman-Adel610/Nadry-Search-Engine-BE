@@ -30,9 +30,16 @@ const getSearch = async (req, res) => {
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 20; // Ensure limit is a number, default 20
 
+    // Start timing
+    const searchStart = Date.now();
+
     // Call the search service instance method
     // 'results' here contains { results: [...], totalResults: N, page, limit, tokens }
     const serviceResult = await searchService.search(query, pageNum, limitNum);
+
+    // End timing
+    const searchEnd = Date.now();
+    const searchTimeSec = (searchEnd - searchStart) / 1000; // in seconds
 
     // Log the tokens for debugging
     console.log(`Search tokenized "${query}" into:`, serviceResult.tokens);
@@ -58,6 +65,7 @@ const getSearch = async (req, res) => {
       currentPage: pageNum, // Add current page info
       totalResults: serviceResult.totalResults, // Add total results info
       tokens: serviceResult.tokens, // Include tokens in the response
+      searchTimeSec, // Add search time in seconds
     });
   } catch (error) {
     console.error("Search error:", error);
