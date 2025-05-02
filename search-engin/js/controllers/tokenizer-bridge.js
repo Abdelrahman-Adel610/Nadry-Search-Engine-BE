@@ -60,14 +60,14 @@ let tokenizerInstance = null;
 let tokenizerType = "fallback";
 
 try {
-  // Try importing TokenizerWrapper using its fully qualified name
-  const TokenizerWrapper = java.import("indexer.TokenizerWrapper"); // Use fully qualified name
-  tokenizerInstance = new TokenizerWrapper();
-  tokenizerType = "JavaTokenizerWrapper"; // Update type name for clarity
-  console.log("Successfully loaded indexer.TokenizerWrapper");
+  // Try importing SearchWrapper using its fully qualified name
+  const SearchWrapper = java.import("api.SearchWrapper"); // Changed from indexer.TokenizerWrapper to api.SearchWrapper
+  tokenizerInstance = new SearchWrapper();
+  tokenizerType = "JavaSearchWrapper"; // Update type name for clarity
+  console.log("Successfully loaded api.SearchWrapper");
 } catch (wrapperError) {
   console.warn(
-    "Failed to load indexer.TokenizerWrapper:",
+    "Failed to load api.SearchWrapper:", // Updated error message
     wrapperError.message
   );
   // Log the full error for better debugging

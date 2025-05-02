@@ -1,6 +1,6 @@
-package indexer;
+package api;
 
-// Add explicit imports for classes in the same package
+// Import classes from the indexer package
 import indexer.StopWordFilter;
 import indexer.Tokenizer;
 
@@ -11,21 +11,21 @@ import java.util.List;
 /**
  * Wrapper class to expose tokenization functionality to Node.js through java-bridge
  */
-public class TokenizerWrapper {
-    private static final Logger logger = LoggerFactory.getLogger(TokenizerWrapper.class);
+public class SearchWrapper {
+    private static final Logger logger = LoggerFactory.getLogger(SearchWrapper.class);
     private final Tokenizer tokenizer;
     
     /**
      * Constructor that initializes the tokenizer with a new StopWordFilter
      */
-    public TokenizerWrapper() {
+    public SearchWrapper() {
         try {
             StopWordFilter stopWordFilter = new StopWordFilter();
             this.tokenizer = new Tokenizer(stopWordFilter);
-            logger.info("TokenizerWrapper initialized successfully");
+            logger.info("SearchWrapper initialized successfully 3333bdoooooooo");
         } catch (Exception e) {
-            logger.error("Failed to initialize TokenizerWrapper: {}", e.getMessage());
-            throw new RuntimeException("Failed to initialize TokenizerWrapper", e);
+            logger.error("Failed to initialize SearchWrapper: {}", e.getMessage());
+            throw new RuntimeException("Failed to initialize SearchWrapper", e);
         }
     }
     
