@@ -236,5 +236,30 @@ public class InvertedIndex {
         public void SetPopularityScore(double score) {
         	popularity_score = score;
         }
+
+        @Override
+        public String toString() {
+            // Create a string representation of the fieldPositions map
+            StringBuilder positionsStr = new StringBuilder("{");
+            fieldPositions.forEach((field, positions) -> {
+                positionsStr.append(field.name())
+                            .append("=")
+                            .append(positions.toString())
+                            .append(", ");
+            });
+            // Remove trailing comma and space if map is not empty
+            if (positionsStr.length() > 1) {
+                positionsStr.setLength(positionsStr.length() - 2);
+            }
+            positionsStr.append("}");
+
+            return "Posting{" +
+                   "docId='" + docId + '\'' +
+                   ", url='" + url + '\'' +
+                   ", weight=" + weight +
+                   ", popularity_score=" + popularity_score +
+                   ", fieldPositions=" + positionsStr.toString() +
+                   '}';
+        }
     }
 }

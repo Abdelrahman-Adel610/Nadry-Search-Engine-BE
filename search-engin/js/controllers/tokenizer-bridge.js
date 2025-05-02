@@ -128,9 +128,99 @@ function tokenize(text) {
   }
 }
 
+/**
+ * Search for documents matching the query using the Java search engine
+ * @param {string} query - The search query
+ * @returns {Array} - Array of search results with document URLs and relevance scores
+ */
+function search(query) {
+  if (!query || typeof query !== "string") {
+    console.warn(`Invalid query provided to search: ${query}`);
+    return [];
+  }
+
+  try {
+    // Make sure we're using the Java SearchWrapper
+    if (tokenizerType === "JavaSearchWrapper") {
+      console.log(
+        `tokenizer-bridge: Calling Java searchSync for query "${query}"`
+      );
+      // Call the search method from the Java SearchWrapper
+      const javaResults = tokenizerInstance.searchSync(query);
+
+      // --- Debugging ---
+      console.log("tokenizer-bridge: Raw javaResults:", javaResults);
+      if (javaResults && typeof javaResults.sizeSync === "function") {
+        // Changed size to sizeSync
+        console.log(
+          "tokenizer-bridge: javaResults.sizeSync():",
+          javaResults.sizeSync()
+        ); // Changed size() to sizeSync()
+      } else {
+        console.log(
+          "tokenizer-bridge: javaResults does not have a sizeSync method or is null/undefined."
+        );
+      }
+      // --- End Debugging ---
+
+      // Convert Java search results to JavaScript array
+      const jsResults = [];
+      // Check if javaResults is valid and has sizeSync method before iterating
+      if (javaResults && typeof javaResults.sizeSync === "function") {
+        // Changed size to sizeSync
+        const size = javaResults.sizeSync(); // Store size as a local variable
+        for (let i = 0; i < size; i++) {
+          const javaResult = javaResults.getSync(i); // Changed get(i) to getSync(i)
+
+          // Convert Java Map to JavaScript object
+          const result = {};
+          // Check if javaResult is valid and has keySetSync method
+          if (javaResult && typeof javaResult.keySetSync === "function") {
+            // Changed keySet to keySetSync
+            const keysSet = javaResult.keySetSync(); // Get the key set
+            const keys = keysSet.toArraySync(); // Changed toArray() to toArraySync()
+            for (let j = 0; j < keys.length; j++) {
+              const key = String(keys[j]);
+              const value = javaResult.getSync(keys[j]); // Changed get(keys[j]) to getSync(keys[j])
+              // Handle potential nested Java objects/arrays if necessary
+              // For now, assume simple values or let the bridge handle conversion
+              result[key] = value;
+            }
+            jsResults.push(result);
+          } else {
+            console.warn(
+              `tokenizer-bridge: Invalid javaResult at index ${i}:`,
+              javaResult
+            );
+          }
+        }
+      } else {
+        console.warn(
+          "tokenizer-bridge: Received invalid javaResults object from searchSync:",
+          javaResults
+        );
+      }
+
+      console.log(
+        `tokenizer-bridge: Converted ${jsResults.length} results for query "${query}"`
+      );
+      return jsResults;
+    } else {
+      console.warn(
+        "Search functionality requires JavaSearchWrapper, but using fallback tokenizer"
+      );
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error in tokenizer-bridge search:`, error);
+    return []; // Return empty array on error
+  }
+}
+
 console.log(`Tokenizer bridge initialized with ${tokenizerType} tokenizer`);
 
 module.exports = {
   tokenize,
+  search,
   tokenizerType,
 };
