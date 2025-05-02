@@ -2,6 +2,7 @@ package indexer;
 
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -15,7 +16,9 @@ import com.mongodb.client.model.UpdateOneModel;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -25,8 +28,15 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import indexer.InvertedIndex.FieldType;
 import indexer.InvertedIndex.Posting;
+import nadry.ranker.QueryDocument;
 
 public class MongoDBIndexStore {
     private final MongoClient mongoClient;
@@ -121,6 +131,39 @@ public class MongoDBIndexStore {
             e.printStackTrace();
         }
     }
+    
+    public List<QueryDocument> populateScoresAndTotalword(List<QueryDocument> docs) {
+        checkClientState();
+        QueryDocument[] resultList = new QueryDocument[docs.size()];
+
+        System.out.printf("Got %d document to populate\n",resultList.length);
+        try {
+            System.out.println("Populating documents for given URLs...");
+            
+            Map<String, Integer> urlToIndexMapping = new HashMap<String, Integer>();
+            for(int i = 0; i < docs.size(); i++) urlToIndexMapping.put(docs.get(i).GetURL(), i);
+            
+            List<String> urls = docs.stream().map((x)->x.GetURL()).collect(Collectors.toList());
+            FindIterable<Document> docsObject = documentsCollection.find(Filters.in("url", urls));
+
+            for (Document docObj : docsObject) {
+            	int index = urlToIndexMapping.get(docObj.getString("url"));
+            	QueryDocument doc = docs.get(index);
+            	doc.SetPopularityScore(docObj.getDouble("popularity_score"));
+            	doc.SetTotalWordCount(docObj.getInteger("totalWords"));
+            	
+            	resultList[index] = doc;
+            }
+
+            System.out.println("Retrieved " + resultList.length + " documents.");
+            return Arrays.asList(resultList);
+        } catch (Exception e) {
+            System.err.println("MongoDB error while retrieving documents by URLs: " + e.getMessage());
+            e.printStackTrace();
+            return Arrays.asList(resultList); // return empty list on failure
+        }
+    }
+
 
     public List<DocumentData> getAllDocuments() {
         checkClientState();
@@ -159,7 +202,7 @@ public class MongoDBIndexStore {
                 .append("content", content)
                 .append("links", links)
                 .append("totalWords", totalWords)
-                .append("popularity_score", (Double) 1.0);
+            	.append("popularity_score",(Double)0.0);
 
             System.out.println("Saving document to Documents collection: " + docId);
             Bson filter = Filters.eq("_id", docId);

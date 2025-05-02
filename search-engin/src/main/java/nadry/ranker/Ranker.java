@@ -8,26 +8,14 @@ import java.util.List;
 import java.util.Map;
 
 import indexer.InvertedIndex.Posting;
+import indexer.MongoDBIndexStore;
 
-public final class Ranker {
-	public class QueryDocument{
-		String url;
-		Map<String, Integer> termFrequency;
-		double popularityScore;
-		
-		public QueryDocument(String url, Map<String, Integer> termFrequency, double popularityScore) {
-			this.url = url;
-			this.termFrequency =termFrequency;
-			this.popularityScore = popularityScore;
-		}
-		
-		public Map<String, Integer> GetTermFrequency(){
-			return termFrequency;
-		}
-		
-		public Double GetPopularityScore() {
-			return popularityScore;
-		}
+public class Ranker {
+	private static final String CONNECTION_STRING = "mongodb://localhost:27017/search_engine";
+
+	MongoDBIndexStore db;
+	public Ranker() {
+		db = new MongoDBIndexStore(CONNECTION_STRING, "search_engine", "inverted_index");
 	}
 	
 	/*
@@ -35,11 +23,11 @@ public final class Ranker {
 	 * pages Bag is a list of map that contains frequencies of query phrase
 	 * @returns sorted pages
 	 */
-	public static ArrayList<QueryDocument> Rank(Map<String, Integer> queryBag, ArrayList<QueryDocument> pagesBag) {
-				
-		ArrayList<Double> relevanceScores = CalculatePopularityScore(queryBag, pagesBag);
+	public ArrayList<QueryDocument> Rank(Map<String, Integer> queryBag, List<QueryDocument> pagesBag) {
+		pagesBag = db.populateScoresAndTotalword(pagesBag);
+
+		ArrayList<Double> relevanceScores = CalculateRelevenceScore(queryBag, pagesBag);
 		
-		ArrayList<Double> popularityScores = new ArrayList<Double>();
 		
 		List<Map.Entry<Double, QueryDocument>> scoredDocs = new ArrayList<>();
 
@@ -68,7 +56,7 @@ public final class Ranker {
 	 * query Bag is a map that contains frequencies of query phrase
 	 * pages Bag is a list of map that contains frequencies of query phrase
 	 */
-	public static ArrayList<Double> CalculatePopularityScore(Map<String, Integer> queryBag, ArrayList<QueryDocument> pagesBag) {
+	public ArrayList<Double> CalculateRelevenceScore(Map<String, Integer> queryBag, List<QueryDocument> pagesBag) {
 	    int N = pagesBag.size(); // total documents
 
 	    // Compute document frequency DF for each term
@@ -95,7 +83,7 @@ public final class Ranker {
 	        Map<String, Double> docTFIDF = calculateTFIDF(doc, docFreq, N);
 
 	        double relevanceScore = dotProduct(queryTFIDF, queryNorm, docTFIDF);
-	        System.out.printf("Document %d Popularity: %.4f\n", i + 1, relevanceScore);
+	        System.out.printf("Document %d Relevence: %.4f\n", i + 1, relevanceScore);
 	        scores.add(relevanceScore);
 	    }
 	    return scores;
@@ -104,7 +92,7 @@ public final class Ranker {
 	/*
 	 * Calculated TF-IDF vector for a document
 	 */
-	public static Map<String, Double> calculateTFIDF(Map<String, Integer> doc, Map<String, Integer> docFreq, int TotalDocs) {
+	public Map<String, Double> calculateTFIDF(Map<String, Integer> doc, Map<String, Integer> docFreq, int TotalDocs) {
 		int docLength = 0;
         for (int freq : doc.values()) docLength += freq;
 
@@ -124,7 +112,7 @@ public final class Ranker {
 	/*
 	 * dot product between two TFIDF vectors
 	 */
-	public static double dotProduct(Map<String, Double> queryTFIDF, double queryNorm, Map<String, Double> docTFIDF) {
+	public double dotProduct(Map<String, Double> queryTFIDF, double queryNorm, Map<String, Double> docTFIDF) {
 		double dotProduct = 0.0;
         double docNorm = normVector(docTFIDF);
 
@@ -138,7 +126,7 @@ public final class Ranker {
 	}
 	
 	
-	public static double normVector(Map<String, Double> queryTFIDF) {
+	public double normVector(Map<String, Double> queryTFIDF) {
 		double queryNorm = 0.0;
 	    for (double val : queryTFIDF.values()) 
 	    	queryNorm += val * val;

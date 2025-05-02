@@ -16,9 +16,17 @@ public class PageRank {
         MongoDBIndexStore db = new MongoDBIndexStore(CONNECTION_STRING, "search_engine", "inverted_index");
         List<DocumentData> docs = db.getAllDocuments();
         
+        System.out.println("Loaded Docs: ");
+        Set<String> urlsSet = new HashSet<String>();
+        for(DocumentData doc : docs) urlsSet.add(doc.getUrl());
+        
         Map<String, List<String>> graph = new HashMap<String, List<String>>();
         for(DocumentData doc : docs) {
+        	System.out.printf("URL: %s, Links: %d\n", doc.getUrl(), doc.getLinks().size());
         	for(String to : doc.getLinks()) {
+        		if(!urlsSet.contains(to)) continue;
+        		
+        		System.out.printf("\tTo: %s\n", to);
         		List<String> incommingURLs = graph.getOrDefault(to, new ArrayList<String>());
         		incommingURLs.add(doc.getUrl());
         		graph.put(to, incommingURLs);
@@ -52,6 +60,10 @@ public class PageRank {
                 List<String> incoming = incomingLinks.getOrDefault(page, new ArrayList<>());
 
                 for (String inPage : incoming) {
+                	if(!graph.containsKey(inPage)) {
+                		System.out.printf("%s no one links to it.\n", inPage);
+                		continue;
+                	}
                     int outLinks = graph.get(inPage).size();
                     rankSum += ranks.get(inPage) / outLinks;
                 }
