@@ -1,12 +1,17 @@
 const express = require("express");
 const { dummyResults } = require("../models/data.js");
 const { supabase } = require("../models/supabase.js");
-const { tokenize } = require("./tokenizer-bridge.js");
+const { tokenize, search } = require("./tokenizer-bridge.js");
 const SearchService = require("../services/SearchService.js");
 const { v4: uuidv4 } = require("uuid");
 
-// Create a search service instance, passing the tokenizer
-const searchService = new SearchService({ tokenize });
+// Create a search service instance, passing the tokenizer and search functions
+const searchService = new SearchService({ tokenize, search });
+
+// Add debug output to verify search is available
+console.log(
+  `SearchController: Search function available: ${typeof search === "function"}`
+);
 
 /**
  * Basic search endpoint
@@ -14,33 +19,60 @@ const searchService = new SearchService({ tokenize });
  */
 const getSearch = async (req, res) => {
   try {
-    const { query, page = 1, limit = 20 } = req.query;
+    const { query, page = 1, limit = 20 } = req.query; // Default limit to 20
     if (!query) {
       return res.status(400).json({
         success: false,
         message: "Search query is required",
       });
     }
+
     const pageNum = parseInt(page, 10) || 1;
-    const limitNum = parseInt(limit, 10) || 20;
+    const limitNum = parseInt(limit, 10) || 20; // Ensure limit is a number, default 20
+
+    // Start timing
+    const searchStart = Date.now();
 
     // Call the search service instance method
-    const results = await searchService.search(query, pageNum, limitNum);
+    // 'results' here contains { results: [...], totalResults: N, page, limit, tokens }
+    const serviceResult = await searchService.search(query, pageNum, limitNum);
 
-    // // Log the tokens for debugging
-    console.log(`Search tokenized "${query}" into:`, results.tokens);
+    // End timing
+    const searchEnd = Date.now();
+    const searchTimeSec = (searchEnd - searchStart) / 1000; // in seconds
+
+    // Log the tokens for debugging
+    console.log(`Search tokenized "${query}" into:`, serviceResult.tokens);
+    console.log(
+      `SearchController: Received ${serviceResult.totalResults} total results from service.`
+    );
+
+    // Apply pagination to the actual results
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = pageNum * limitNum;
+    const paginatedData = serviceResult.results.slice(startIndex, endIndex);
+
+    console.log(
+      `SearchController: Returning ${paginatedData.length} results for page ${pageNum}.`
+    );
 
     return res.status(200).json({
       success: true,
-      data: dummyResults.slice((page - 1) * limit, page * limit),
-      totalPages: Math.ceil(dummyResults.length / limit),
-      tokens: results.tokens,
+      // Use the paginated data from the actual results
+      data: paginatedData,
+      // Calculate total pages based on the total results from the service
+      totalPages: Math.ceil(serviceResult.totalResults / limitNum),
+      currentPage: pageNum, // Add current page info
+      totalResults: serviceResult.totalResults, // Add total results info
+      tokens: serviceResult.tokens, // Include tokens in the response
+      searchTimeSec, // Add search time in seconds
     });
   } catch (error) {
     console.error("Search error:", error);
     return res.status(500).json({
       success: false,
       message: "An error occurred during search",
+      error: error.message, // Include error message for debugging
     });
   }
 };

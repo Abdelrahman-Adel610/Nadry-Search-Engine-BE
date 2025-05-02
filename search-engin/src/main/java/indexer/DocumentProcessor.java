@@ -1,17 +1,14 @@
 package indexer;
-import org.apache.tika.Tika;
+
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
@@ -29,27 +26,35 @@ public class DocumentProcessor {
 
     public DocumentProcessor(List<String> unwantedSelectors) {
         this.unwantedSelectors = unwantedSelectors != null ? unwantedSelectors : Collections.emptyList();
-        // Changed to cached thread pool for I/O-bound tasks
         this.executorService = Executors.newCachedThreadPool();
     }
 
-    public ProcessedDocument process(Path filePath, String url) throws DocumentProcessingException {
-        logger.info("Processing file: {}", filePath);
-        try {
-            if (!Files.isRegularFile(filePath)) {
-                throw new DocumentProcessingException("File not found or not a regular file: " + filePath, null);
-            }
-            if (Files.size(filePath) > 100_000_000) {
-                throw new DocumentProcessingException("Document exceeds maximum size limit", null);
-            }
-            String contentType = detectContentType(filePath);
-            if (!isValidHtml(contentType)) {
-                throw new DocumentProcessingException("Invalid content type: " + contentType, null);
-            }
-            try (InputStream input = Files.newInputStream(filePath)) {
-                Document doc = Jsoup.parse(input, "UTF-8", url);
-                String title = doc.title();
-                logger.debug("Extracted title: {}", title);
+    public List<ProcessedDocument> process(List<String> htmlStrings, List<String> urls) throws DocumentProcessingException {
+        if (htmlStrings.size() != urls.size()) {
+            throw new IllegalArgumentException("HTML strings and URLs lists must be the same size.");
+        }
+
+        logger.info("Processing {} HTML documents", htmlStrings.size());
+        List<ProcessedDocument> processedDocuments = new ArrayList<>();
+        
+        for (int i = 0; i < htmlStrings.size(); i++) {
+            String htmlContent = htmlStrings.get(i);
+            String url = urls.get(i);
+            try {
+                if (htmlContent == null || htmlContent.trim().isEmpty()) {
+                    logger.warn("Skipping empty or null HTML content for URL: {}", url);
+                    throw new DocumentProcessingException("Empty or null HTML content", null);
+                }
+                
+                byte[] contentBytes = htmlContent.getBytes("UTF-8");
+                if (contentBytes.length > 100_000_000) {
+                    logger.warn("HTML content exceeds size limit for URL: {}", url);
+                    throw new DocumentProcessingException("Document exceeds maximum size limit", null);
+                }
+
+                Document doc = Jsoup.parse(htmlContent, url);
+                String title = doc.title() != null ? doc.title() : "";
+                logger.debug("Extracted title: {} for URL: {}", title, url);
                 String description = doc.selectFirst("meta[name=description]") != null 
                     ? doc.selectFirst("meta[name=description]").attr("content") : "";
 
@@ -58,51 +63,59 @@ public class DocumentProcessor {
                 String mainContent = extractMainContent(doc);
 
                 String docId = generateDocId(url);
-                logger.debug("Extracted {} links: {}", links.size(), links);
+                logger.debug("Extracted {} links for URL {}: {}", links.size(), url, links);
 
-                return new ProcessedDocument(docId, url, title, description, mainContent, filePath.toString(), links);
+                processedDocuments.add(new ProcessedDocument(docId, url, title, description, mainContent, "memory", links));
+                
+            } catch (UnsupportedEncodingException e) {
+                logger.error("Encoding error while processing HTML content for URL {}: {}", url, e.getMessage());
+                throw new DocumentProcessingException("Failed to process HTML content: encoding error", e);
+            } catch (Exception e) {
+                logger.error("Unexpected error processing HTML content for URL {}: {}", url, e.getMessage());
+                throw new DocumentProcessingException("Failed to process HTML content", e);
             }
-        } catch (IOException e) {
-            logger.error("Failed to process document: {}", filePath, e);
-            throw new DocumentProcessingException("Failed to process document: " + filePath, e);
         }
+        
+        logger.info("Successfully processed {} documents", processedDocuments.size());
+        return processedDocuments;
     }
 
-    public CompletableFuture<ProcessedDocument> processAsync(Path filePath, String url) {
+    public CompletableFuture<List<ProcessedDocument>> processAsync(List<String> htmlStrings, List<String> urls) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return process(filePath, url);
+                return process(htmlStrings, urls);
             } catch (DocumentProcessingException e) {
-                logger.error("Async processing failed for {}: {}", filePath, e.getMessage());
-                return null;
+                logger.error("Async processing failed: {}", e.getMessage());
+                return Collections.emptyList();
             }
         }, executorService);
     }
 
-    public List<ProcessedDocument> processDocumentsAsync(List<Path> paths, List<String> urls) {
-        if (paths.size() != urls.size()) {
-            throw new IllegalArgumentException("Paths and URLs lists must be the same size.");
+    public List<ProcessedDocument> processDocumentsAsync(List<String> htmlStrings, List<String> urls) {
+        if (htmlStrings.size() != urls.size()) {
+            throw new IllegalArgumentException("HTML strings and URLs lists must be the same size.");
         }
 
-        List<CompletableFuture<ProcessedDocument>> futures = new ArrayList<>();
-        for (int i = 0; i < paths.size(); i++) {
-            Path path = paths.get(i);
-            String url = urls.get(i);
-            // Enhanced error handling with exceptional completion
-            futures.add(processAsync(path, url).exceptionally(throwable -> {
-                logger.error("Failed to process {}: {}", path, throwable.getMessage());
-                return null;
+        List<CompletableFuture<List<ProcessedDocument>>> futures = new ArrayList<>();
+        // Process each HTML string individually for better parallelism
+        for (int i = 0; i < htmlStrings.size(); i++) {
+            final int index = i; // Create a final copy of i
+            List<String> singleHtml = Collections.singletonList(htmlStrings.get(index));
+            List<String> singleUrl = Collections.singletonList(urls.get(index));
+            futures.add(processAsync(singleHtml, singleUrl).exceptionally(throwable -> {
+                logger.error("Failed to process HTML content for URL {}: {}", urls.get(index), throwable.getMessage());
+                return Collections.emptyList();
             }));
         }
 
         List<ProcessedDocument> results = futures.stream()
             .map(CompletableFuture::join)
+            .flatMap(List::stream)
             .filter(Objects::nonNull)
             .collect(Collectors.toList());
 
-        // Log summary of processing
-        if (results.size() < paths.size()) {
-            logger.warn("Processed {}/{} documents successfully", results.size(), paths.size());
+        if (results.size() < htmlStrings.size()) {
+            logger.warn("Processed {}/{} documents successfully", results.size(), htmlStrings.size());
         }
 
         return results;
@@ -111,13 +124,11 @@ public class DocumentProcessor {
     private String extractMainContent(Document doc) {
         StringBuilder contentBuilder = new StringBuilder();
 
-        // Include main article/content
         Element main = doc.selectFirst("main, article, div[class*=content], div[id*=content]");
         if (main != null) {
             contentBuilder.append(main.text()).append(" ");
         }
 
-        // Include semantic structure if available
         List<Element> extraSections = doc.select(
             "article, section, header, footer, main, " +
             "h1, h2, h3, h4, h5, h6, " +
@@ -129,22 +140,12 @@ public class DocumentProcessor {
             contentBuilder.append(section.text()).append(" ");
         }
 
-        // Fallback to full body if nothing found
-        if (contentBuilder.toString().trim().isEmpty()) {
-            return doc.body().text();
+        String content = contentBuilder.toString().trim();
+        if (content.isEmpty()) {
+            content = doc.body() != null ? doc.body().text() : "";
         }
 
-        return contentBuilder.toString().trim();
-    }
-
-    private String detectContentType(Path filePath) throws IOException {
-        // Create new Tika instance per call to ensure thread safety
-        Tika tika = new Tika();
-        return tika.detect(filePath.toFile());
-    }
-
-    private boolean isValidHtml(String contentType) {
-        return "text/html".equals(contentType);
+        return content;
     }
 
     private String generateDocId(String url) {
@@ -200,7 +201,7 @@ public class DocumentProcessor {
                     .collect(Collectors.joining("&"));
                 normalized = parts[0] + (query.isEmpty() ? "" : "?" + query);
             }
-            new java.net.URL(normalized).toURI(); // Validate URL
+            new java.net.URL(normalized).toURI();
             return normalized;
         } catch (URISyntaxException | java.net.MalformedURLException e) {
             logger.debug("Failed to normalize URL: {}, error: {}", url, e.getMessage());
@@ -210,7 +211,6 @@ public class DocumentProcessor {
 
     public void shutdown() {
         try {
-            // Improved shutdown with timeout
             if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
                 executorService.shutdownNow();
             }

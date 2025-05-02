@@ -134,33 +134,49 @@ public class MongoDBIndexStore {
     
     public List<QueryDocument> populateScoresAndTotalword(List<QueryDocument> docs) {
         checkClientState();
-        QueryDocument[] resultList = new QueryDocument[docs.size()];
+        // Initialize resultList with the input docs to handle cases where a doc isn't found in DB
+        List<QueryDocument> resultList = new ArrayList<>(docs); 
 
-        System.out.printf("Got %d document to populate\n",resultList.length);
+        System.out.printf("Got %d document to populate\n", docs.size());
+        if (docs.isEmpty()) {
+            return resultList; // Return immediately if input is empty
+        }
         try {
             System.out.println("Populating documents for given URLs...");
             
-            Map<String, Integer> urlToIndexMapping = new HashMap<String, Integer>();
-            for(int i = 0; i < docs.size(); i++) urlToIndexMapping.put(docs.get(i).GetURL(), i);
+            Map<String, Integer> urlToIndexMapping = new HashMap<>();
+            for(int i = 0; i < docs.size(); i++) {
+                urlToIndexMapping.put(docs.get(i).GetURL(), i);
+            }
             
-            List<String> urls = docs.stream().map((x)->x.GetURL()).collect(Collectors.toList());
+            List<String> urls = docs.stream().map(QueryDocument::GetURL).collect(Collectors.toList());
             FindIterable<Document> docsObject = documentsCollection.find(Filters.in("url", urls));
 
             for (Document docObj : docsObject) {
-            	int index = urlToIndexMapping.get(docObj.getString("url"));
-            	QueryDocument doc = docs.get(index);
-            	doc.SetPopularityScore(docObj.getDouble("popularity_score"));
-            	doc.SetTotalWordCount(docObj.getInteger("totalWords"));
-            	
-            	resultList[index] = doc;
+                String url = docObj.getString("url");
+                Integer index = urlToIndexMapping.get(url); // Use Integer to handle potential null
+                if (index != null) { // Check if the URL from DB matches one in the input list
+                    QueryDocument doc = resultList.get(index); // Get the doc from resultList
+                    // Safely get values, providing defaults if null
+                    doc.SetPopularityScore(docObj.get("popularity_score", Double.class) != null ? docObj.getDouble("popularity_score") : 0.0);
+                    doc.SetTotalWordCount(docObj.get("totalWords", Integer.class) != null ? docObj.getInteger("totalWords") : 0);
+                    doc.setTitle(docObj.getString("title") != null ? docObj.getString("title") : ""); // Set title
+                    doc.setDescription(docObj.getString("description") != null ? docObj.getString("description") : ""); // Set description
+                    // No need to put back into resultList as we modified the object in place
+                } else {
+                     System.out.println("Warning: URL from DB not found in input list: " + url);
+                }
             }
 
-            System.out.println("Retrieved " + resultList.length + " documents.");
-            return Arrays.asList(resultList);
+            // Log how many documents were actually found and populated
+            long populatedCount = resultList.stream().filter(d -> d.getTitle() != null).count(); // Example check
+            System.out.println("Populated " + populatedCount + " out of " + docs.size() + " documents.");
+            return resultList;
         } catch (Exception e) {
             System.err.println("MongoDB error while retrieving documents by URLs: " + e.getMessage());
             e.printStackTrace();
-            return Arrays.asList(resultList); // return empty list on failure
+            // Return the list as is, possibly partially populated or empty on error
+            return resultList; 
         }
     }
 
