@@ -45,6 +45,7 @@ public class SearchWrapper {
             this.tokenizer = new Tokenizer(stopWordFilter);
             this.index = new InvertedIndex(mongoConnectionString, databaseName, collectionName);
             this.ranker = new nadry.ranker.Ranker(mongoConnectionString); // Initialize Ranker
+            this.mongoStore = new MongoDBIndexStore(mongoConnectionString, databaseName, collectionName); // Initialize mongoStore
         } catch (Exception e) {
             logger.error("Failed to initialize SearchWrapper", e); // Log error
             throw new RuntimeException("Failed to initialize SearchWrapper", e);
