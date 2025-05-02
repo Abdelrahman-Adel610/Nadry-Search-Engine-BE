@@ -30,7 +30,8 @@ public class RankerApplication {
     			doc1TermFrequencsy));
     	//////////////////////
     	
-    	Ranker r = new Ranker();
+    	String connectionString = "dummy connection string";
+    	Ranker r = new Ranker(connectionString);
     	r.Rank(queryTermFrequencsy, docs);
     	
     }

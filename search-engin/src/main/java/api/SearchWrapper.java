@@ -45,7 +45,7 @@ public class SearchWrapper {
             StopWordFilter stopWordFilter = new StopWordFilter();
             this.tokenizer = new Tokenizer(stopWordFilter);
             this.index = new InvertedIndex(mongoConnectionString, databaseName, collectionName);
-            this.ranker = new nadry.ranker.Ranker(); // Initialize Ranker
+            this.ranker = new nadry.ranker.Ranker(mongoConnectionString); // Initialize Ranker
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize SearchWrapper", e);
         }
