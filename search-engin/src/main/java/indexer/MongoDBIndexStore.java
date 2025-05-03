@@ -56,7 +56,7 @@ public class MongoDBIndexStore {
         }
         try {
             System.out.println("Connecting to MongoDB with connection string: " + connectionString);
-            ConnectionString connString = new ConnectionString(connectionString + "?connectTimeoutMS=5000&socketTimeoutMS=5000&maxPoolSize=10");
+            ConnectionString connString = new ConnectionString(connectionString + "?connectTimeoutMS=500000&socketTimeoutMS=500000&maxPoolSize=50");
             MongoClientSettings settings = MongoClientSettings.builder()
                 .applyConnectionString(connString)
                 .retryWrites(true)

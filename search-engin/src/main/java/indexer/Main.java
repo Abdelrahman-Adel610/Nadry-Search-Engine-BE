@@ -17,7 +17,7 @@ import java.security.NoSuchAlgorithmException;
 
 public class Main {
     public static void main(String[] args) {
-        ExecutorService executor = Executors.newFixedThreadPool(8);
+        ExecutorService executor = Executors.newFixedThreadPool(16);
         InvertedIndex index = null;
         MongoDBIndexStore mongoStore = null;
         MongoJava db = new MongoJava("mongodb://localhost:27017/","Ndry");
@@ -31,8 +31,8 @@ public class Main {
             // MongoDB configuration
             String mongoConnectionString = System.getenv("MONGO_URI") != null
                 ? System.getenv("MONGO_URI")
-                : "mongodb://localhost:27017/search_engine";
-            String databaseName = "search_engine";
+                : "mongodb://localhost:27017/search_engine2";
+            String databaseName = "search_engine2";
             String collectionName = "inverted_index";
 
             // Initialize components
@@ -95,7 +95,7 @@ public class Main {
             }
             try {
                 executor.shutdown();
-                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                if (!executor.awaitTermination(60000, TimeUnit.SECONDS)) {
                     executor.shutdownNow();
                     System.err.println("Executor did not terminate within timeout");
                 }

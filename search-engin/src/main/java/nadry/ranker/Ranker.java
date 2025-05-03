@@ -46,6 +46,11 @@ public class Ranker {
 	    for (Map.Entry<Double, QueryDocument> entry : scoredDocs) {
 	        sortedDocs.add(entry.getValue());
 	    }
+	    
+	    for(QueryDocument doc: sortedDocs) {
+	    	System.out.printf("Url: %s, \nTitle: %s\n, Description: %s\n, Score: %f.\n\n", doc.GetURL(), doc.getTitle(), doc.getDescription(), doc.getScore());
+	    }
+	    
 	    System.out.printf("Ranked %d results\n", sortedDocs.size());
 	    return sortedDocs;
 	}

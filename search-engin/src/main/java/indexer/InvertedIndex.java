@@ -1,13 +1,19 @@
 package indexer;
 
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class InvertedIndex {
     private final Map<String, List<Posting>> index = new ConcurrentHashMap<>();
     private final MongoDBIndexStore mongoStore;
-    private final List<Map.Entry<String, Posting>> pendingUpdates = Collections.synchronizedList(new ArrayList<>());
-    private static final int BATCH_SIZE = 1000;
+    private final BlockingQueue<Map.Entry<String, Posting>> updateQueue;
+    private final ExecutorService consumerExecutor;
+    private static final int BATCH_SIZE = 10000;
+    private static final int QUEUE_CAPACITY = 1000000; // Adjust based on needs
+    private static final int NUM_CONSUMER_THREADS = 32; // Configurable number of consumer threads
+    private volatile boolean running = true;
 
     public enum FieldType {
         TITLE(3.0),
@@ -28,10 +34,48 @@ public class InvertedIndex {
     public InvertedIndex(String mongoConnectionString, String databaseName, String collectionName) {
         try {
             this.mongoStore = new MongoDBIndexStore(mongoConnectionString, databaseName, collectionName);
+            this.updateQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
+            this.consumerExecutor = Executors.newFixedThreadPool(NUM_CONSUMER_THREADS);
+            startBatchConsumers();
         } catch (Exception e) {
             System.err.println("Failed to initialize MongoDBIndexStore: " + e.getMessage());
             e.printStackTrace();
             throw new RuntimeException("InvertedIndex initialization failed", e);
+        }
+    }
+
+    private void startBatchConsumers() {
+        for (int i = 0; i < NUM_CONSUMER_THREADS; i++) {
+            consumerExecutor.submit(() -> {
+                List<Map.Entry<String, Posting>> batch = new ArrayList<>();
+                while (running) {
+
+                    try {
+                        // Take the first update, blocking if queue is empty
+                        Map.Entry<String, Posting> update = updateQueue.take();
+                        batch.add(update);
+
+                        // Drain additional updates up to BATCH_SIZE
+                        updateQueue.drainTo(batch, BATCH_SIZE - 1);
+
+                        if (!batch.isEmpty()) {
+                            System.out.println("Thread " + Thread.currentThread().getName() + 
+                                               " processing batch of " + batch.size() + " updates");
+                            flushBatch(batch);
+                            batch.clear();
+                        }
+                    } catch (InterruptedException e) {
+                        System.err.println("Batch consumer interrupted in thread " + 
+                                           Thread.currentThread().getName() + ": " + e.getMessage());
+                        Thread.currentThread().interrupt();
+                        break;
+                    } catch (Exception e) {
+                        System.err.println("Error processing batch in thread " + 
+                                           Thread.currentThread().getName() + ": " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
+            });
         }
     }
 
@@ -67,27 +111,13 @@ public class InvertedIndex {
             }
         }
 
-        synchronized (pendingUpdates) {
-            boolean merged = false;
-            for (Map.Entry<String, Posting> entry : pendingUpdates) {
-                if (entry.getKey().equals(term) && entry.getValue().getDocId().equals(posting.getDocId())) {
-                    for (FieldType fieldType : posting.getFieldTypes()) {
-                        List<Integer> positions = posting.getPositions(fieldType);
-                        for (Integer pos : positions) {
-                            entry.getValue().addPosition(pos, fieldType);
-                        }
-                    }
-                    merged = true;
-                    break;
-                }
-            }
-            if (!merged) {
-                pendingUpdates.add(Map.entry(term, posting));
-            }
-            if (pendingUpdates.size() >= BATCH_SIZE) {
-                System.out.println("Writing batch of " + pendingUpdates.size() + " updates to MongoDB");
-                flushPendingUpdates();
-            }
+        try {
+            // Add to queue, will block if queue is full
+            updateQueue.put(Map.entry(term, posting));
+//            System.out.println("Enqueued update for term: " + term + ", docId: " + posting.getDocId());
+        } catch (InterruptedException e) {
+            System.err.println("Interrupted while enqueuing update for term: " + term);
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -128,18 +158,31 @@ public class InvertedIndex {
             System.err.println("MongoDBIndexStore is null, cannot close");
             return;
         }
-        synchronized (pendingUpdates) {
-            if (!pendingUpdates.isEmpty()) {
-                System.out.println("Flushing updates to MongoDB");
-                flushPendingUpdates();
+        running = false;
+        try {
+            // Wait for remaining updates to process
+            consumerExecutor.shutdown();
+            if (!consumerExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                System.err.println("Batch consumer did not terminate within timeout");
+                consumerExecutor.shutdownNow();
             }
+            // Process any remaining updates
+            List<Map.Entry<String, Posting>> remaining = new ArrayList<>();
+            updateQueue.drainTo(remaining);
+            if (!remaining.isEmpty()) {
+                System.out.println("Flushing " + remaining.size() + " remaining updates");
+                flushBatch(remaining);
+            }
+        } catch (InterruptedException e) {
+            System.err.println("Interrupted during close: " + e.getMessage());
+            Thread.currentThread().interrupt();
         }
         mongoStore.close();
     }
 
-    public void flushPendingUpdates() {
+    private void flushBatch(List<Map.Entry<String, Posting>> updates) {
         Map<String, Map<String, Posting>> termToPostings = new HashMap<>();
-        for (Map.Entry<String, Posting> update : pendingUpdates) {
+        for (Map.Entry<String, Posting> update : updates) {
             String term = update.getKey();
             Posting posting = update.getValue();
             termToPostings.computeIfAbsent(term, k -> new HashMap<>())
@@ -168,19 +211,18 @@ public class InvertedIndex {
         if (!deduplicatedUpdates.isEmpty()) {
             mongoStore.addOrUpdatePostings(deduplicatedUpdates);
         }
-        pendingUpdates.clear();
     }
 
     public static class Posting {
         private final String docId;
-        private final String url; // Added URL field
+        private final String url;
         private final Map<FieldType, List<Integer>> fieldPositions;
         private double weight = 0.0;
         private double popularity_score;
 
         public Posting(String docId, String url) {
             this.docId = docId;
-            this.url = url; // Initialize URL
+            this.url = url;
             this.fieldPositions = new EnumMap<>(FieldType.class);
         }
 
@@ -193,7 +235,7 @@ public class InvertedIndex {
             return docId;
         }
 
-        public String getUrl() { // Added getter for URL
+        public String getUrl() {
             return url;
         }
 
@@ -228,13 +270,13 @@ public class InvertedIndex {
         public Set<FieldType> getFieldTypes() {
             return fieldPositions.keySet();
         }
-        
+
         public double GetPopularityScore() {
-        	return popularity_score;
+            return popularity_score;
         }
-    
+
         public void SetPopularityScore(double score) {
-        	popularity_score = score;
+            popularity_score = score;
         }
     }
 }

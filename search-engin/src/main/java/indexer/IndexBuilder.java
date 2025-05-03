@@ -14,7 +14,7 @@ public class IndexBuilder {
 
     public IndexBuilder(DocumentProcessor docProcessor, Tokenizer tokenizer,
                         String mongoConnectionString, String databaseName, String collectionName) {
-        this(docProcessor, tokenizer, 8,
+        this(docProcessor, tokenizer, 16,
              mongoConnectionString, databaseName, collectionName);
     }
 
@@ -59,36 +59,36 @@ public class IndexBuilder {
                     );
 
                     for (ProcessedDocument doc : docs) {
-                        System.out.println("Processed document: " + doc.getDocId() + " in " +
-                                        (System.currentTimeMillis() - startTime) + "ms");
-                        System.out.println("  URL: " + doc.getUrl());
-                        System.out.println("  Title: " + doc.getTitle());
-                        System.out.println("  Description: " + doc.getDescription());
-                        System.out.println("  Content: " + doc.getContent());
-                        System.out.println("  Source: " + doc.getFilePath());
-                        System.out.println("  Links: " + doc.getLinks());
+//                        System.out.println("Processed document: " + doc.getDocId() + " in " +
+//                                        (System.currentTimeMillis() - startTime) + "ms");
+//                        System.out.println("  URL: " + doc.getUrl());
+//                        System.out.println("  Title: " + doc.getTitle());
+//                        System.out.println("  Description: " + doc.getDescription());
+//                        System.out.println("  Content: " + doc.getContent());
+//                        System.out.println("  Source: " + doc.getFilePath());
+//                        System.out.println("  Links: " + doc.getLinks());
 
                         startTime = System.currentTimeMillis();
                         int totalWords = 0;
                         totalWords += indexDocumentField(doc.getTitle(), doc.getDocId(), urls.get(idx), InvertedIndex.FieldType.TITLE);
                         totalWords += indexDocumentField(doc.getDescription(), doc.getDocId(), urls.get(idx), InvertedIndex.FieldType.DESCRIPTION);
                         totalWords += indexDocumentField(doc.getContent(), doc.getDocId(), urls.get(idx), InvertedIndex.FieldType.BODY);
-                        System.out.println("Indexed document " + doc.getDocId() + " in " +
-                                        (System.currentTimeMillis() - startTime) + "ms");
+//                        System.out.println("Indexed document " + doc.getDocId() + " in " +
+//                                        (System.currentTimeMillis() - startTime) + "ms");
 
                         List<String> linksList = new ArrayList<>(doc.getLinks());
-                        System.out.println("Converted links: " + doc.getLinks() + " -> " + linksList);
+//                        System.out.println("Converted links: " + doc.getLinks() + " -> " + linksList);
 
-                        System.out.println("Saving document: " + doc.getDocId() + " with " + totalWords + " tokens");
-                        mongoStore.saveDocument(
-                            doc.getDocId(),
-                            doc.getUrl(),
-                            doc.getTitle(),
-                            doc.getDescription(),
-                            doc.getContent(),
-                            linksList,
-                            totalWords
-                        );
+//                        System.out.println("Saving document: " + doc.getDocId() + " with " + totalWords + " tokens");
+//                        mongoStore.saveDocument(
+//                            doc.getDocId(),
+//                            doc.getUrl(),
+//                            doc.getTitle(),
+//                            doc.getDescription(),
+//                            doc.getContent(),
+//                            linksList,
+//                            totalWords
+//                        );
                         System.out.println("Saved document " + doc.getDocId() + " to Documents collection");
 
                         successCount.incrementAndGet();
@@ -129,7 +129,7 @@ public class IndexBuilder {
         }
 
         List<String> tokens = tokenizer.tokenize(text);
-        System.out.println("Tokens for " + docId + " (" + fieldType + "): " + tokens);
+        // System.out.println("Tokens for " + docId + " (" + fieldType + "): " + tokens);
         Map<String, InvertedIndex.Posting> termPostings = new HashMap<>();
         
         for (int pos = 0; pos < tokens.size(); pos++) {
