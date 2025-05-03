@@ -14,7 +14,7 @@ public class IndexBuilder {
 
     public IndexBuilder(DocumentProcessor docProcessor, Tokenizer tokenizer,
                         String mongoConnectionString, String databaseName, String collectionName) {
-        this(docProcessor, tokenizer, Runtime.getRuntime().availableProcessors(),
+        this(docProcessor, tokenizer, 8,
              mongoConnectionString, databaseName, collectionName);
     }
 
@@ -109,7 +109,7 @@ public class IndexBuilder {
 
         executor.shutdown();
         try {
-            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+            if (!executor.awaitTermination(6000, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
                 System.err.println("Index building executor did not terminate within timeout");
             }
