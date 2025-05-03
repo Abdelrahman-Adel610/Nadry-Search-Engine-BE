@@ -11,11 +11,9 @@ import indexer.InvertedIndex.Posting;
 import indexer.MongoDBIndexStore;
 
 public class Ranker {
-	private static final String CONNECTION_STRING = "mongodb://localhost:27017/search_engine";
-
 	MongoDBIndexStore db;
-	public Ranker() {
-		db = new MongoDBIndexStore(CONNECTION_STRING, "search_engine", "inverted_index");
+	public Ranker(String connection_string) {
+		db = new MongoDBIndexStore(connection_string, "search_engine", "inverted_index");
 	}
 	
 	/*
@@ -25,9 +23,9 @@ public class Ranker {
 	 */
 	public ArrayList<QueryDocument> Rank(Map<String, Integer> queryBag, List<QueryDocument> pagesBag) {
 		pagesBag = db.populateScoresAndTotalword(pagesBag);
-
-		ArrayList<Double> relevanceScores = CalculateRelevenceScore(queryBag, pagesBag);
 		
+		ArrayList<Double> relevanceScores = CalculateRelevenceScore(queryBag, pagesBag);
+		System.out.printf("Calculated Relevence scores for %d documents\n", pagesBag.size());
 		
 		List<Map.Entry<Double, QueryDocument>> scoredDocs = new ArrayList<>();
 
@@ -48,7 +46,7 @@ public class Ranker {
 	    for (Map.Entry<Double, QueryDocument> entry : scoredDocs) {
 	        sortedDocs.add(entry.getValue());
 	    }
-
+	    System.out.printf("Ranked %d results\n", sortedDocs.size());
 	    return sortedDocs;
 	}
 		
@@ -83,7 +81,7 @@ public class Ranker {
 	        Map<String, Double> docTFIDF = calculateTFIDF(doc, docFreq, N);
 
 	        double relevanceScore = dotProduct(queryTFIDF, queryNorm, docTFIDF);
-	        System.out.printf("Document %d Relevence: %.4f\n", i + 1, relevanceScore);
+//	        System.out.printf("Document %d Relevence: %.4f\n", i + 1, relevanceScore);
 	        scores.add(relevanceScore);
 	    }
 	    return scores;

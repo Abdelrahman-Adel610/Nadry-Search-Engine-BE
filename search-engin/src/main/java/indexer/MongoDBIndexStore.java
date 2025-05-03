@@ -158,8 +158,10 @@ public class MongoDBIndexStore {
                 if (index != null) { // Check if the URL from DB matches one in the input list
                     QueryDocument doc = resultList.get(index); // Get the doc from resultList
                     // Safely get values, providing defaults if null
-                    doc.SetPopularityScore(docObj.get("popularity_score", Double.class) != null ? docObj.getDouble("popularity_score") : 0.0);
-                    doc.SetTotalWordCount(docObj.get("totalWords", Integer.class) != null ? docObj.getInteger("totalWords") : 0);
+//                    doc.SetPopularityScore(docObj.getDouble("popularity_score") != null ? docObj.getDouble("popularity_score") : 0.0);
+                    doc.SetPopularityScore(((Number) docObj.get("popularity_score")).doubleValue());
+                    
+                    doc.SetTotalWordCount(docObj.getInteger("totalWords") != null ? docObj.getInteger("totalWords") : 0);
                     doc.setTitle(docObj.getString("title") != null ? docObj.getString("title") : ""); // Set title
                     doc.setDescription(docObj.getString("description") != null ? docObj.getString("description") : ""); // Set description
                     // No need to put back into resultList as we modified the object in place
