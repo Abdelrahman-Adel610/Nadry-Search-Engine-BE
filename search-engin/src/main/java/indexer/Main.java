@@ -1,38 +1,51 @@
 package indexer;
 
 import com.mongodb.client.MongoDatabase;
-
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import webCrawler.CrawlerWrapper;
 import webCrawler.MongoJava;
-
 import java.security.MessageDigest;
-import java.util.Arrays;
-import java.util.LinkedList;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.security.NoSuchAlgorithmException;
+import org.bson.Document;
+import com.mongodb.MongoWriteException;
+import com.mongodb.client.*;
+import com.mongodb.client.model.*;
 
 public class Main {
+    private static final int QUEUE_CAPACITY = 1000; // Queue size to balance memory and throughput
+    private static final int CONSUMER_THREADS = 15; // Number of consumer threads for indexing
+    private final MongoClient mongoClient =MongoClients.create("mongodb://localhost:27017/Ndry");
+    private static final MongoDatabase database2 = MongoClients.create("mongodb://localhost:27017/Ndry").getDatabase("Ndry");
+    private static final String CRAWLED_URLS_COLLECTION = "crawled_html"; // Collection name for crawled documents
+
     public static void main(String[] args) {
-        ExecutorService executor = Executors.newFixedThreadPool(16);
+        ExecutorService executor = Executors.newFixedThreadPool(16); // 1 producer + 15 consumers
         InvertedIndex index = null;
         MongoDBIndexStore mongoStore = null;
-        MongoJava db = new MongoJava("mongodb://localhost:27017/","Ndry");
-        CrawlerWrapper crawler = new CrawlerWrapper(db);
-        try {
-            // Define HTML strings and URLs
-            
-            List<String> htmls = new LinkedList<>(crawler.getCrawledHtml());
-            List<String> urls = new LinkedList<>(crawler.getCrawledUrls());
+        MongoJava db = new MongoJava("mongodb://localhost:27017/", "Ndry");
 
+//        CrawlerWrapper crawler = new CrawlerWrapper(db);
+        
+        // Initialize the BlockingQueue
+        BlockingQueue<Document> documentQueue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
+
+        try {
             // MongoDB configuration
             String mongoConnectionString = System.getenv("MONGO_URI") != null
                 ? System.getenv("MONGO_URI")
-                : "mongodb://localhost:27017/search_engine2";
-            String databaseName = "search_engine2";
+                : "mongodb://localhost:27017/search_engine6";
+            String databaseName = "search_engine6";
             String collectionName = "inverted_index";
 
             // Initialize components
@@ -47,8 +60,7 @@ public class Main {
             database.getCollection("Documents").drop();
             System.out.println("Cleared inverted_index and Documents collections");
 
-            // Submit index building task
-            System.out.println("Starting index building...");
+            // Initialize IndexBuilder
             IndexBuilder indexBuilder = new IndexBuilder(
                 processor,
                 tokenizer,
@@ -57,20 +69,74 @@ public class Main {
                 collectionName
             );
             index = getIndex(indexBuilder);
-            CompletableFuture<Void> indexBuildingFuture = CompletableFuture.runAsync(() -> {
+
+            // Start producer thread to fetch documents one by one
+            CompletableFuture<Void> producerFuture = CompletableFuture.runAsync(() -> {
+                MongoCursor<Document> cursor = null;
                 try {
-                    indexBuilder.buildIndex(htmls, urls);
-                    System.out.println("Index building completed.");
+                    MongoCollection<Document> collection = database2.getCollection(CRAWLED_URLS_COLLECTION);
+                    cursor = collection.find().iterator();
+                    int documentCount = 0;
+                    while (cursor.hasNext()) {
+                        Document doc = cursor.next();
+                        documentQueue.put(doc); // Add document to queue, blocks if full
+                        documentCount++;
+                    }
+                    System.out.println("Producer retrieved and queued " + documentCount + " documents.");
+                    System.out.println("Producer finished adding documents to queue.");
+                } catch (InterruptedException e) {
+                    System.err.println("Producer interrupted: " + e.getMessage());
+                    Thread.currentThread().interrupt();
                 } catch (Exception e) {
-                    System.err.println("Error during index building: " + e.getMessage());
+                    System.err.println("Producer error: " + e.getMessage());
                     e.printStackTrace();
-                    throw new RuntimeException("Index building failed", e);
+                } finally {
+                    // Close cursor
+                    if (cursor != null) {
+                        cursor.close();
+                    }
+                    // Add poison pill to signal consumers to stop
+                    try {
+                        documentQueue.put(new Document("poison", "pill"));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
             }, executor);
 
-            // Wait for index building
-            indexBuildingFuture.join();
+            // Start consumer threads to process documents from queue
+            List<CompletableFuture<Void>> consumerFutures = new ArrayList<>();
+            for (int i = 0; i < CONSUMER_THREADS; i++) {
+                CompletableFuture<Void> consumerFuture = CompletableFuture.runAsync(() -> {
+                    try {
+                        while (true) {
+                            Document doc = documentQueue.take(); // Blocks until document is available
+                            if (doc.containsKey("poison") && doc.getString("poison").equals("pill")) {
+                                // Re-add poison pill for other consumers
+                                documentQueue.put(doc);
+                                break; // Exit consumer loop
+                            }
+                            // Process document
+                            String html = doc.getString("html");
+                            String url = doc.getString("url");
+                            indexBuilder.buildIndex(List.of(html), List.of(url));
+                        }
+                        System.out.println("Consumer thread finished.");
+                    } catch (InterruptedException e) {
+                        System.err.println("Consumer interrupted: " + e.getMessage());
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        System.err.println("Consumer error: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }, executor);
+                consumerFutures.add(consumerFuture);
+            }
 
+            // Wait for producer and consumers to complete
+            producerFuture.join();
+            CompletableFuture.allOf(consumerFutures.toArray(new CompletableFuture[0])).join();
+            System.out.println("Index building completed.");
 
         } catch (Exception e) {
             System.err.println("Error in main: " + e.getMessage());
@@ -95,7 +161,7 @@ public class Main {
             }
             try {
                 executor.shutdown();
-                if (!executor.awaitTermination(60000, TimeUnit.SECONDS)) {
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
                     executor.shutdownNow();
                     System.err.println("Executor did not terminate within timeout");
                 }

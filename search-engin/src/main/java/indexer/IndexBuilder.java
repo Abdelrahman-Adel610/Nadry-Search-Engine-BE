@@ -14,7 +14,7 @@ public class IndexBuilder {
 
     public IndexBuilder(DocumentProcessor docProcessor, Tokenizer tokenizer,
                         String mongoConnectionString, String databaseName, String collectionName) {
-        this(docProcessor, tokenizer, 16,
+        this(docProcessor, tokenizer, 32,
              mongoConnectionString, databaseName, collectionName);
     }
 
@@ -79,16 +79,16 @@ public class IndexBuilder {
                         List<String> linksList = new ArrayList<>(doc.getLinks());
 //                        System.out.println("Converted links: " + doc.getLinks() + " -> " + linksList);
 
-//                        System.out.println("Saving document: " + doc.getDocId() + " with " + totalWords + " tokens");
-//                        mongoStore.saveDocument(
-//                            doc.getDocId(),
-//                            doc.getUrl(),
-//                            doc.getTitle(),
-//                            doc.getDescription(),
-//                            doc.getContent(),
-//                            linksList,
-//                            totalWords
-//                        );
+                        System.out.println("Saving document: " + doc.getDocId() + " with " + totalWords + " tokens");
+                        mongoStore.saveDocument(
+                            doc.getDocId(),
+                            doc.getUrl(),
+                            doc.getTitle(),
+                            doc.getDescription(),
+                            doc.getContent(),
+                            linksList,
+                            totalWords
+                        );
                         System.out.println("Saved document " + doc.getDocId() + " to Documents collection");
 
                         successCount.incrementAndGet();
