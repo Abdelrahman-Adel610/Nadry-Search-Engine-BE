@@ -25,9 +25,9 @@ public class RankerApplication {
     	doc1TermFrequencsy.put("item", 12);
     	doc1TermFrequencsy.put("order", 12);
 
-    	docs.add(new QueryDocument(
-    			"https://example.com/sample2.html",
-    			doc1TermFrequencsy));
+//    	docs.add(new QueryDocument(
+//    			"https://example.com/sample2.html",
+//    			doc1TermFrequencsy));
     	//////////////////////
     	
     	String connectionString = "dummy connection string";

@@ -23,15 +23,28 @@ public class Ranker {
 	 * @returns sorted pages
 	 */
 	public List<QueryDocument> Rank(Map<String, Integer> queryBag, List<QueryDocument> pagesBag) {
+		long startTime = System.nanoTime();
+
 		pagesBag = db.populateScoresAndTotalword(pagesBag);
-		
 		for(QueryDocument d : pagesBag) {
 			System.out.print(d.GetPopularityScore() + ", ");
 		}
-//		return pagesBag;
+		long endTime = System.nanoTime();
+		long durationInMillis = (endTime - startTime) / 1_000_000;
+		System.out.printf("Populated in %d.\n", durationInMillis);
+		
+		startTime = System.nanoTime();
 		NormlizePopularityScore(pagesBag);
+		endTime = System.nanoTime();
+		durationInMillis = (endTime - startTime) / 1_000_000;
+		System.out.printf("Normlized Popularity Scores in %dms.\n", durationInMillis);
+		
+		startTime = System.nanoTime();
 		ArrayList<Double> relevanceScores = CalculateRelevenceScore(queryBag, pagesBag);
-		System.out.printf("Calculated Relevence scores for %d documents\n", pagesBag.size());
+//		System.out.printf("Calculated Relevence scores for %d documents\n", pagesBag.size());
+		endTime = System.nanoTime();
+		durationInMillis = (endTime - startTime) / 1_000_000;
+		System.out.printf("Calculated Relevence Scores in %dms.\n", durationInMillis);
 		
 		List<Map.Entry<Double, QueryDocument>> scoredDocs = new ArrayList<>();
 
@@ -56,11 +69,12 @@ public class Ranker {
 	        sortedDocs.add(entry.getValue());
 	    }
 	    
-	    for(QueryDocument doc: sortedDocs) {
-	    	System.out.printf("Url: %s, \nTitle: %s\n, Description: %s\n, Score: %f.\n\n", doc.GetURL(), doc.getTitle(), doc.getDescription(), doc.getScore());
-	    }
+//	    for(QueryDocument doc: sortedDocs) {
+//	    	System.out.printf("Url: %s, \nTitle: %s\n, Description: %s\n, Score: %f.\n\n", doc.GetURL(), doc.getTitle(), doc.getDescription(), doc.getScore());
+//	    }
 	    
 	    System.out.printf("Ranked %d results\n", sortedDocs.size());
+//	    return sortedDocs.subList(0, Math.min(sortedDocs.size(), 20));
 	    return sortedDocs;
 	}
 	

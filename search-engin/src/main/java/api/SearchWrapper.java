@@ -206,7 +206,7 @@ public class SearchWrapper {
             for (FieldType field : p.getFieldTypes()) {
                 for (int pos : p.getPositions(field)) {
                     potentialMatches.computeIfAbsent(p.getDocId(), k -> new ArrayList<>())
-                                    .add(new PotentialMatch(p.getUrl(), field, pos));
+                                    .add(new PotentialMatch(p.getDocId(), p.getUrl(), field, pos));
                 }
             }
         }
@@ -254,7 +254,7 @@ public class SearchWrapper {
                                 if (currentPos == match.position + 1) {
                                     // Found a consecutive term, update the potential match's position
                                     nextPotentialMatches.computeIfAbsent(docId, k -> new ArrayList<>())
-                                                        .add(new PotentialMatch(match.url, match.field, currentPos));
+                                                        .add(new PotentialMatch(docId, match.url, match.field, currentPos));
                                     break; // Move to the next potential match for this docId
                                 }
                             }
@@ -323,8 +323,10 @@ public class SearchWrapper {
         List<QueryDocument> pagesBag = new ArrayList<>();
         for (Map.Entry<String, Map<String, Integer>> entry : docTermFrequencies.entrySet()) {
             String url = docUrls.get(entry.getKey());
+            String id = entry.getKey();
+
             if (url != null) {
-                pagesBag.add(new QueryDocument(url, entry.getValue()));
+                pagesBag.add(new QueryDocument(id, url, entry.getValue()));
             }
         }
         
@@ -370,11 +372,13 @@ public class SearchWrapper {
 
     // Helper class to track potential phrase matches
     private static class PotentialMatch {
+    	final String id;
         final String url;
         final FieldType field;
         final int position; // Position of the *last* matched term in the sequence
 
-        PotentialMatch(String url, FieldType field, int position) {
+        PotentialMatch(String id, String url, FieldType field, int position) {
+        	this.id = id;
             this.url = url;
             this.field = field;
             this.position = position;

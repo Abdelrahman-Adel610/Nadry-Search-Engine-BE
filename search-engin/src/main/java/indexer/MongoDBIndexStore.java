@@ -9,6 +9,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoCursor; // Add this import for MongoCursor
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.model.WriteModel;
@@ -130,52 +131,57 @@ public class MongoDBIndexStore {
     
     public List<QueryDocument> populateScoresAndTotalword(List<QueryDocument> docs) {
         checkClientState();
-        // Initialize resultList with the input docs to handle cases where a doc isn't found in DB
-        List<QueryDocument> resultList = new ArrayList<>(docs); 
 
-        System.out.printf("Got %d document to populate\n", docs.size());
+        List<QueryDocument> resultList = new ArrayList<>(docs);
+        System.out.printf("Got %d document(s) to populate\n", docs.size());
+
         if (docs.isEmpty()) {
-            return resultList; // Return immediately if input is empty
+            return resultList;
         }
+
         try {
-            System.out.println("Populating documents for given URLs...");
-            
+            System.out.println("Populating popularity_score and totalWords for given URLs...");
+
             Map<String, Integer> urlToIndexMapping = new HashMap<>();
-            for(int i = 0; i < docs.size(); i++) {
+            for (int i = 0; i < docs.size(); i++) {
                 urlToIndexMapping.put(docs.get(i).GetURL(), i);
             }
-            
-            List<String> urls = docs.stream().map(QueryDocument::GetURL).collect(Collectors.toList());
-            FindIterable<Document> docsObject = documentsCollection.find(Filters.in("url", urls));
+
+            List<String> ids = docs.stream().map(QueryDocument::GetID).collect(Collectors.toList());
+
+            FindIterable<Document> docsObject = documentsCollection
+                .find(Filters.in("_id", ids))
+                .projection(Projections.include("_id", "url", "popularity_score", "totalWords")); // Only fetch required fields
 
             for (Document docObj : docsObject) {
                 String url = docObj.getString("url");
-                Integer index = urlToIndexMapping.get(url); // Use Integer to handle potential null
-                if (index != null) { // Check if the URL from DB matches one in the input list
-                    QueryDocument doc = resultList.get(index); // Get the doc from resultList
-                    // Safely get values, providing defaults if null
-                    doc.SetPopularityScore(((Number) docObj.get("popularity_score")).doubleValue());
-                    
-                    doc.SetTotalWordCount(docObj.getInteger("totalWords") != null ? docObj.getInteger("totalWords") : 0);
-                    doc.setTitle(docObj.getString("title") != null ? docObj.getString("title") : ""); // Set title
-                    doc.setDescription(docObj.getString("description") != null ? docObj.getString("description") : ""); // Set description
-                    // No need to put back into resultList as we modified the object in place
+                Integer index = urlToIndexMapping.get(url);
+                if (index != null) {
+                    QueryDocument doc = resultList.get(index);
+                    Object scoreObj = docObj.get("popularity_score");
+                    if (scoreObj instanceof Number) {
+                        doc.SetPopularityScore(((Number) scoreObj).doubleValue());
+                    } else {
+                        doc.SetPopularityScore(0.0); // Default value if missing or not a number
+                    }
+
+                    Integer totalWords = docObj.getInteger("totalWords");
+                    doc.SetTotalWordCount(totalWords != null ? totalWords : 0);
                 } else {
-                     System.out.println("Warning: URL from DB not found in input list: " + url);
+                    System.out.println("Warning: URL from DB not found in input list: " + url);
                 }
             }
 
-            // Log how many documents were actually found and populated
-            long populatedCount = resultList.stream().filter(d -> d.getTitle() != null).count(); // Example check
-            System.out.println("Populated " + populatedCount + " out of " + docs.size() + " documents.");
+            System.out.println("Finished populating document scores and word counts.");
             return resultList;
+
         } catch (Exception e) {
             System.err.println("MongoDB error while retrieving documents by URLs: " + e.getMessage());
             e.printStackTrace();
-            // Return the list as is, possibly partially populated or empty on error
-            return resultList; 
+            return resultList;
         }
     }
+
 
 
     public List<DocumentData> getAllDocuments() {

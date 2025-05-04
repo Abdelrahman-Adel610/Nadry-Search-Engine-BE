@@ -4,6 +4,7 @@ import java.util.Map;
 
 public class QueryDocument{
 	String url;
+	String id;
 	Map<String, Integer> termFrequency;
 	double popularityScore;
 	double relevenceScore;
@@ -17,12 +18,15 @@ public class QueryDocument{
 	
 	
 
-	public QueryDocument(String url, Map<String, Integer> termFrequency) {
+	public QueryDocument(String id, String url, Map<String, Integer> termFrequency) {
+		this.id = id;
 		this.url = url;
 		this.termFrequency =termFrequency;
 	}
 	
 	public String GetURL() {return url;}
+	
+	public String GetID() {return id;}
 	
 	public Map<String, Integer> GetTermFrequency(){
 		return termFrequency;
