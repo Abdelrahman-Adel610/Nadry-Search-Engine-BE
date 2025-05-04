@@ -14,7 +14,10 @@ import nadry.ranker.QueryDocument;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.lang.reflect.Field;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
@@ -37,8 +40,8 @@ public class SearchWrapper {
     public SearchWrapper() {
         try {
             // MongoDB configuration - get from environment or use default
-            this.mongoConnectionString =  "mongodb+srv://admin:admin@cluster0.wtcajo8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-            this.databaseName = "search_engine";
+            this.mongoConnectionString =  "mongodb://localhost:27017";
+            this.databaseName = "search_engine2";
             this.collectionName = "inverted_index";
             
             StopWordFilter stopWordFilter = new StopWordFilter();
@@ -330,19 +333,39 @@ public class SearchWrapper {
         }
         
         // Rank documents
-        ArrayList<QueryDocument> rankedDocs = ranker.Rank(queryBag, pagesBag);
+        List<QueryDocument> rankedDocs = ranker.Rank(queryBag, pagesBag);
         
         // Convert to result format
         return rankedDocs.stream()
             .map(doc -> {
-                Map<String, Object> result = new HashMap<>();
-                result.put("url", doc.GetURL());
-                result.put("score", doc.getScore());
-                result.put("title", doc.getTitle());
-                result.put("description", doc.getDescription());
-                return result;
+//                Map<String, Object> result = new HashMap<>();
+//                result.put("url", doc.GetURL());
+//                result.put("score", doc.getScore());
+//                result.put("title", doc.getTitle());
+//                result.put("description", doc.getDescription());
+//                result.put("popularityScore", doc.GetPopularityScore());
+//                result.put("relevence_score", doc.GetRelevenceScore());
+//                return result;
+            	return toMap(doc);
             })
             .collect(Collectors.toList());
+    }
+    
+    public static Map<String, Object> toMap(Object obj) {
+        Map<String, Object> result = new HashMap<>();
+        Class<?> objClass = obj.getClass();
+
+        for (Field field : objClass.getDeclaredFields()) {
+            field.setAccessible(true); // allows access to private fields
+            try {
+                Object value = field.get(obj);
+                result.put(field.getName(), value);
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+
+        return result;
     }
 
     // Helper class to track potential phrase matches

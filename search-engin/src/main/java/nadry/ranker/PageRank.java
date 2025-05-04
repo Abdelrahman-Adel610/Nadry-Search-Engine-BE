@@ -6,14 +6,14 @@ import indexer.DocumentData;
 import indexer.MongoDBIndexStore;
 
 public class PageRank {
-	private static final String CONNECTION_STRING = "mongodb://localhost:27017/search_engine";
+	private static final String CONNECTION_STRING = "mongodb://localhost:27017/";
 
     private static final double DAMPING_FACTOR = 0.85;
     private static final double TOLERANCE = 1.0e-6;
     private static final int MAX_ITER = 100;
 
     public static void main(String[] args) {
-        MongoDBIndexStore db = new MongoDBIndexStore(CONNECTION_STRING, "search_engine", "inverted_index");
+        MongoDBIndexStore db = new MongoDBIndexStore(CONNECTION_STRING, "search_engine2", "inverted_index");
         List<DocumentData> docs = db.getAllDocuments();
         
         System.out.println("Loaded Docs: ");
@@ -76,7 +76,7 @@ public class PageRank {
             ranks = newRanks;
             if (diff < TOLERANCE) break;
         }
-
+        
         return ranks;
     }
 
