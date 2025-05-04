@@ -245,10 +245,13 @@ public class WebCrawler implements Runnable {
 	private static String normalizeLink(String url) throws URISyntaxException {
 		URL initUrl = null;
 		try {
-			initUrl = new URL(url);
-		} catch (MalformedURLException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			// Use URI to parse and then convert to URL to avoid deprecated constructor
+			URI uri = new URI(url);
+			initUrl = uri.toURL();
+		} catch (MalformedURLException | URISyntaxException e) { // Catch both exceptions
+			System.err.println("Error parsing URL: " + url + " - " + e.getMessage());
+			// Depending on desired behavior, you might want to return null or throw
+			throw new URISyntaxException(url, "Malformed URL or URI syntax error"); // Re-throw as URISyntaxException for consistency
 		}
 		// extracting url part using URL for better parsing
 		String scheme = initUrl.getProtocol();
