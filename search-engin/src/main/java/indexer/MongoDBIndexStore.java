@@ -17,7 +17,6 @@ import com.mongodb.client.model.UpdateOneModel;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -30,11 +29,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
 import indexer.InvertedIndex.FieldType;
 import indexer.InvertedIndex.Posting;
 import nadry.ranker.QueryDocument;
@@ -160,7 +154,6 @@ public class MongoDBIndexStore {
                 if (index != null) { // Check if the URL from DB matches one in the input list
                     QueryDocument doc = resultList.get(index); // Get the doc from resultList
                     // Safely get values, providing defaults if null
-//                    doc.SetPopularityScore(docObj.getDouble("popularity_score") != null ? docObj.getDouble("popularity_score") : 0.0);
                     doc.SetPopularityScore(((Number) docObj.get("popularity_score")).doubleValue());
                     
                     doc.SetTotalWordCount(docObj.getInteger("totalWords") != null ? docObj.getInteger("totalWords") : 0);

@@ -6,10 +6,16 @@ public class QueryDocument{
 	String url;
 	Map<String, Integer> termFrequency;
 	double popularityScore;
+	double relevenceScore;
 	int totalWord;
 	double score; 
 	String title; 
 	String description; 
+	
+	public Map<String, Double> DOC_TFIDF;
+	public Map<String, Double> QUERY_TFIDF;
+	
+	
 
 	public QueryDocument(String url, Map<String, Integer> termFrequency) {
 		this.url = url;
@@ -28,6 +34,14 @@ public class QueryDocument{
 	
 	public void SetPopularityScore(double score) {
 		popularityScore = score;
+	}
+	
+	public Double GetRelevenceScore() {
+		return relevenceScore;
+	}
+	
+	public void SetRelevenceScore(double score) {
+		relevenceScore = score;
 	}
 	
 	public int GetTotalWord(){
