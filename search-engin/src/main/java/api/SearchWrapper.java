@@ -1,25 +1,31 @@
 package api;
 
 // Import classes from the indexer package
-import indexer.StopWordFilter;
-import indexer.Tokenizer;
-import indexer.InvertedIndex;
-import indexer.MongoDBIndexStore;
-import indexer.InvertedIndex.Posting;
-import indexer.InvertedIndex.FieldType;
-// Import Ranker classes
-import nadry.ranker.Ranker;
-import nadry.ranker.QueryDocument;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
-
-import org.slf4j.Logger;
+import org.slf4j.Logger; // Import Pattern
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Field;
-import java.util.*;
-import java.util.List;
-import java.util.concurrent.*;
-import java.util.stream.Collectors;
+import indexer.InvertedIndex;
+import indexer.InvertedIndex.FieldType;
+import indexer.InvertedIndex.Posting;
+import indexer.MongoDBIndexStore;
+import indexer.StopWordFilter;
+import indexer.Tokenizer;
+import nadry.ranker.QueryDocument;
 
 /**
  * Wrapper class to expose tokenization and search functionality to Node.js through java-bridge
@@ -40,8 +46,8 @@ public class SearchWrapper {
     public SearchWrapper() {
         try {
             // MongoDB configuration - get from environment or use default
-            this.mongoConnectionString =  "mongodb://localhost:27017";
-            this.databaseName = "search_engine2";
+            this.mongoConnectionString =  "mongodb+srv://admin:admin@cluster0.wtcajo8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+            this.databaseName = "search_engine"; // <-- Updated database name
             this.collectionName = "inverted_index";
             
             StopWordFilter stopWordFilter = new StopWordFilter();
@@ -140,9 +146,12 @@ public class SearchWrapper {
                     }
                 }
 
-                // Use the helper method to rank and format results
+             
                 List<Map<String, Object>> rankedResults = rankAndFormatResults(
                     queryTokens, docTermFrequencies, docUrls);
+                
+               
+                enrichResultsWithDocumentDetails(rankedResults);
 
                 return rankedResults;
             } finally {
@@ -178,23 +187,22 @@ public class SearchWrapper {
         String[] phraseTokens = tokenize(phrase); 
         //All the phrase parts are stopping words
         if (phraseTokens.length == 0) {
-            logger.warn("Phrase tokenization resulted in zero tokens.");
+            logger.warn("Phrase tokenization resulted in zero valid processed tokens.");
             return Collections.emptyList();
         }
-        
-        
-        // If only one token, delegate to regular search
+
+        // If only one valid token remains, delegate to regular search
         if (phraseTokens.length == 1) {
-            logger.info("Phrase has only one token, delegating to regular search.");
-            return search(phraseTokens[0]);
+            logger.info("Phrase has only one valid token after processing ('{}'), delegating to regular search.", phraseTokens[0]);
+            return search(phraseTokens[0]); // Search for the single processed token
         }
 
-        // Get postings for the first term
-        List<Posting> firstTermPostings = index.getPostings(phraseTokens[0]); 
+        // Get postings for the *first processed* term
+        List<Posting> firstTermPostings = index.getPostings(phraseTokens[0]);
 
         // if first term doesn't exist anyway return EMPTY LIST
         if (firstTermPostings.isEmpty()) {
-            logger.info("No postings found for the first term: {}", phraseTokens[0]);
+            logger.info("No postings found for the first processed term: {}", phraseTokens[0]);
             return Collections.emptyList();
         }
 
@@ -294,6 +302,9 @@ public class SearchWrapper {
             // Use helper method to rank and format results
             logger.info("Ranking {} documents that match the phrase", matchedDocIds.size());
             results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
+            
+            // Enrich phrase search results with document details
+            enrichResultsWithDocumentDetails(results);
         }
 
         logger.info("Phrase search completed. Returning {} results.", results.size());
@@ -368,6 +379,50 @@ public class SearchWrapper {
         }
 
         return result;
+    }
+
+    /**
+     * Enriches search results with document details from MongoDB (title, description)
+     * 
+     * @param results List of search results to be enriched
+     */
+    private void enrichResultsWithDocumentDetails(List<Map<String, Object>> results) {
+        if (results == null || results.isEmpty()) {
+            return;
+        }
+        
+        // Extract document IDs from the results
+        List<String> docIds = results.stream()
+            .map(result -> (String) result.get("id"))
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+        
+        if (docIds.isEmpty()) {
+            logger.warn("No valid document IDs found in search results");
+            return;
+        }
+        
+        try {
+            Map<String, Map<String, Object>> docDetails = mongoStore.getDocumentsByIds(docIds);
+            
+            for (Map<String, Object> result : results) {
+                String docId = (String) result.get("id");
+                if (docId != null && docDetails.containsKey(docId)) {
+                    Map<String, Object> details = docDetails.get(docId);
+                    // Add title and description if available
+                    if (details.containsKey("title")) {
+                        result.put("title", details.get("title"));
+                    }
+                    if (details.containsKey("description")) {
+                        result.put("description", details.get("description"));
+                    }
+                }
+            }
+            
+            logger.info("Enriched {} search results with document details", results.size());
+        } catch (Exception e) {
+            logger.error("Error enriching results with document details", e);
+        }
     }
 
     // Helper class to track potential phrase matches
