@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus; // <-- Add this import
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException; // Import this
 import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -156,17 +157,27 @@ public class SupabaseService {
 
                 logger.debug("Inserting query with URL: {} and Body: {}", insertUrl, objectMapper.writeValueAsString(newRecord));
 
-                ResponseEntity<String> insertResponse = restTemplate.exchange(
-                    insertUrl, HttpMethod.POST, insertEntity, String.class);
+                try {
+                    ResponseEntity<String> insertResponse = restTemplate.exchange(
+                        insertUrl, HttpMethod.POST, insertEntity, String.class);
 
-                // Check specifically for 201 Created
-                if (insertResponse.getStatusCode() == HttpStatus.CREATED) {
-                    logger.info("Saved new search query: \"{}\" (RestTemplate)", query);
-                    return true;
-                } else {
-                    // Log detailed error for non-201 responses during insert
-                    logger.error("Error inserting query (RestTemplate). Status: {}, Body: {}", insertResponse.getStatusCode(), insertResponse.getBody());
-                    return false;
+                    // Check specifically for 201 Created
+                    if (insertResponse.getStatusCode() == HttpStatus.CREATED) {
+                        logger.info("Saved new search query: \"{}\" (RestTemplate)", query);
+                        return true;
+                    } else {
+                        // Log detailed error for non-201 responses during insert
+                        logger.error("Error inserting query (RestTemplate). Status: {}, Body: {}", insertResponse.getStatusCode(), insertResponse.getBody());
+                        return false;
+                    }
+                } catch (HttpClientErrorException.Conflict e) {
+                    // Specifically catch the 409 Conflict error
+                    logger.warn("Query '{}' already exists (encountered 409 Conflict on insert attempt). Considering processed.", query);
+                    return true; // Treat conflict on insert as success (it exists now)
+                } catch (Exception e) {
+                    // Catch other potential errors during insert
+                     logger.error("Error inserting query '{}' into Supabase: {}", query, e.getMessage(), e);
+                     return false;
                 }
             } else {
                 // Log detailed error for non-2xx responses during check
