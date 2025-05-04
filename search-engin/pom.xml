@@ -179,7 +179,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <mainClass>indexer.Main</mainClass>
+                    <mainClass>api.SearchApplication</mainClass>
                 </configuration>
             </plugin>
 
