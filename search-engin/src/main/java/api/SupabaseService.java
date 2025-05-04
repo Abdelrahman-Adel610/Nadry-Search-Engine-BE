@@ -1,14 +1,10 @@
 package api;
 
-// Remove Supabase client imports
-// import io.github.jan.supabase.SupabaseClient;
-// import io.github.jan.supabase.SupabaseClientBuilder;
-// import io.github.jan.supabase.gotrue.GoTrue;
-// import io.github.jan.supabase.postgrest.Postgrest;
-// import io.github.jan.supabase.postgrest.query.PostgrestResult;
-// import org.json.JSONArray;
+import org.springframework.beans.factory.annotation.Value; // Import @Value
+import org.slf4j.Logger; // Use SLF4J for logging
+import org.slf4j.LoggerFactory; // Use SLF4J for logging
+import org.springframework.web.util.UriComponentsBuilder; // For building URIs safely
 
-// Add back necessary imports for RestTemplate approach
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,7 +17,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.annotation.PostConstruct; // Keep this
-import java.net.URLEncoder; // Add back URL encoder
 import java.nio.charset.StandardCharsets; // Add back charset
 import java.util.ArrayList;
 import java.util.Collections;
@@ -32,52 +27,62 @@ import java.util.Map;
 @Service
 public class SupabaseService {
 
-    // Hard-coding the credentials to match the JS implementation
-    private final String supabaseUrl = "https://jfznfxwatpxwqoasszgh.supabase.co";
-    private final String supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impmem5meHdhdHB4d3FvYXNzemdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU4Mzg1NzIsImV4cCI6MjA2MTQxNDU3Mn0._8mpyWZ43SQcgFV6LLtxQpdVLfbqEQ2sf0XcYpeU6sw";
+    private static final Logger logger = LoggerFactory.getLogger(SupabaseService.class); // Logger instance
 
-    // Use RestTemplate and ObjectMapper again
+    // Inject values from application.yml
+    @Value("${supabase.url}")
+    private String supabaseUrl;
+
+    @Value("${supabase.key}")
+    private String supabaseKey;
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private HttpHeaders headers;
-
-    // Remove SupabaseClient field
-    // private SupabaseClient client;
 
     public SupabaseService() {
         this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
     }
 
-
     @PostConstruct
     public void init() {
-        // Initialize headers for RestTemplate
         this.headers = new HttpHeaders();
         this.headers.set("apikey", supabaseKey);
         this.headers.set("Authorization", "Bearer " + supabaseKey);
         this.headers.setContentType(MediaType.APPLICATION_JSON);
-        // Add Prefer header if needed for inserts/updates
-        // this.headers.set("Prefer", "return=minimal"); // Example
-
-        System.out.println("Supabase service initialized (using RestTemplate) with URL: " + supabaseUrl);
+        logger.info("Supabase service initialized (RestTemplate) for URL: {}", supabaseUrl);
+        if (supabaseKey == null || supabaseKey.isEmpty()) {
+             logger.error("Supabase Key is missing!");
+        }
+         if (supabaseUrl == null || supabaseUrl.isEmpty()) {
+             logger.error("Supabase URL is missing!");
+        }
     }
 
     /**
      * Get suggestions from Supabase based on query prefix - using RestTemplate
      */
     public List<String> getSuggestions(String query, int limit) {
-        try {
-            // Build the URL exactly like JS does with ilike filter
-            String url = supabaseUrl + "/rest/v1/Suggestions?select=Suggestions&Suggestions=ilike." +
-                         encodeParameter("%" + query + "%") + "&limit=" + limit;
+        // Use UriComponentsBuilder for safer URL construction and encoding
+        // Correct Supabase REST syntax: column=ilike.*pattern*
+        String url = UriComponentsBuilder.fromHttpUrl(supabaseUrl)
+                .path("/rest/v1/Suggestions")
+                .queryParam("select", "Suggestions")
+                // Apply ilike filter correctly - only encode the query part
+                .queryParam("Suggestions", "ilike.*" + query + "*") // Use * wildcard for ilike via REST
+                .queryParam("limit", String.valueOf(limit))
+                .encode(StandardCharsets.UTF_8) // Ensure proper encoding of the query part within the pattern
+                .toUriString();
 
-            // Make the request
+        logger.debug("Fetching suggestions from URL: {}", url); // Log the URL
+
+        try {
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
 
-            // Process response
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                logger.debug("Supabase suggestions response body: {}", response.getBody()); // Log success response
                 List<Map<String, String>> items = objectMapper.readValue(
                     response.getBody(),
                     new TypeReference<List<Map<String, String>>>() {}
@@ -88,15 +93,14 @@ public class SupabaseService {
                     suggestions.add(item.get("Suggestions"));
                 }
 
-                System.out.println("Successfully fetched " + suggestions.size() + " suggestions (RestTemplate)");
+                logger.info("Successfully fetched {} suggestions (RestTemplate) for query '{}'", suggestions.size(), query);
                 return suggestions;
             } else {
-                System.err.println("Error response from Supabase (RestTemplate): " + response.getStatusCode());
+                logger.error("Error response from Supabase suggestions (RestTemplate): Status={}, Body={}", response.getStatusCode(), response.getBody());
                 return Collections.emptyList();
             }
         } catch (Exception e) {
-            System.err.println("Error fetching suggestions (RestTemplate): " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Error fetching suggestions (RestTemplate) for query '{}': {}", query, e.getMessage(), e);
             return Collections.emptyList();
         }
     }
@@ -105,78 +109,75 @@ public class SupabaseService {
      * Save search query to Supabase - using RestTemplate
      */
     public boolean saveSearchQuery(String query) {
-        try {
-            // Check if query exists - exactly like JS implementation with eq filter
-            String checkUrl = supabaseUrl + "/rest/v1/Suggestions?select=id&Suggestions=eq." +
-                             encodeParameter(query) + "&limit=1";
+        // 1. Check if query exists
+        // Correct Supabase REST syntax: column=eq.value
+         String checkUrl = UriComponentsBuilder.fromHttpUrl(supabaseUrl)
+                .path("/rest/v1/Suggestions")
+                .queryParam("select", "id")
+                .queryParam("Suggestions", "eq." + query) // Use eq. filter correctly
+                .queryParam("limit", "1")
+                .encode(StandardCharsets.UTF_8) // Ensure query value is encoded
+                .toUriString();
 
+        logger.debug("Checking existence with URL: {}", checkUrl);
+
+        try {
             HttpEntity<String> checkEntity = new HttpEntity<>(headers);
             ResponseEntity<String> checkResponse = restTemplate.exchange(
                 checkUrl, HttpMethod.GET, checkEntity, String.class);
 
             if (checkResponse.getStatusCode().is2xxSuccessful() && checkResponse.getBody() != null) {
-                // Parse the response to check if the query exists
+                logger.debug("Supabase check response body: {}", checkResponse.getBody());
                 List<Map<String, Object>> existingItems = objectMapper.readValue(
                     checkResponse.getBody(),
                     new TypeReference<List<Map<String, Object>>>() {}
                 );
 
                 if (!existingItems.isEmpty()) {
-                    // Query already exists
-                    System.out.println("Query \"" + query + "\" already exists in database (RestTemplate).");
-                    return true;
+                    logger.info("Query \"{}\" already exists in database (RestTemplate).", query);
+                    return true; // Mimic JS: success if exists or saved
                 }
 
-                // Query doesn't exist, insert it
-                String insertUrl = supabaseUrl + "/rest/v1/Suggestions";
+                // 2. Query doesn't exist, insert it
+                String insertUrl = UriComponentsBuilder.fromHttpUrl(supabaseUrl)
+                        .path("/rest/v1/Suggestions")
+                        .toUriString();
 
                 Map<String, String> newRecord = new HashMap<>();
                 newRecord.put("Suggestions", query);
 
-                // Ensure Prefer header is set for minimal return on POST
                 HttpHeaders insertHeaders = new HttpHeaders();
                 insertHeaders.addAll(this.headers);
-                insertHeaders.set("Prefer", "return=minimal");
-
+                insertHeaders.set("Prefer", "return=minimal"); // Keep minimal return
 
                 HttpEntity<String> insertEntity = new HttpEntity<>(
                     objectMapper.writeValueAsString(newRecord),
-                    insertHeaders); // Use headers with Prefer
+                    insertHeaders);
+
+                logger.debug("Inserting query with URL: {} and Body: {}", insertUrl, objectMapper.writeValueAsString(newRecord));
 
                 ResponseEntity<String> insertResponse = restTemplate.exchange(
                     insertUrl, HttpMethod.POST, insertEntity, String.class);
 
-                // Check for 201 Created status specifically for successful POST
-                if (insertResponse.getStatusCode() == HttpStatus.CREATED) { // Now HttpStatus can be resolved
-                    System.out.println("Saved new search query: \"" + query + "\" (RestTemplate)");
+                // Check specifically for 201 Created
+                if (insertResponse.getStatusCode() == HttpStatus.CREATED) {
+                    logger.info("Saved new search query: \"{}\" (RestTemplate)", query);
                     return true;
                 } else {
-                    System.err.println("Error inserting query (RestTemplate). Status: " + insertResponse.getStatusCode());
-                    System.err.println("Response body: " + insertResponse.getBody());
+                    // Log detailed error for non-201 responses during insert
+                    logger.error("Error inserting query (RestTemplate). Status: {}, Body: {}", insertResponse.getStatusCode(), insertResponse.getBody());
                     return false;
                 }
             } else {
-                System.err.println("Error checking query existence (RestTemplate). Status: " + checkResponse.getStatusCode());
-                System.err.println("Response body: " + checkResponse.getBody());
+                // Log detailed error for non-2xx responses during check
+                logger.error("Error checking query existence (RestTemplate). Status: {}, Body: {}", checkResponse.getStatusCode(), checkResponse.getBody());
                 return false;
             }
 
         } catch (Exception e) {
-            System.err.println("Error saving search query (RestTemplate): " + e.getMessage());
-            e.printStackTrace();
+             // Log detailed error for exceptions during the whole process
+            logger.error("Error saving search query '{}' (RestTemplate): {}", query, e.getMessage(), e);
             return false;
-        }
-    }
-
-    /**
-     * URL encode a parameter safely
-     */
-    private String encodeParameter(String param) {
-        try {
-            return URLEncoder.encode(param, StandardCharsets.UTF_8.toString());
-        } catch (Exception e) {
-            System.err.println("Error encoding parameter: " + e.getMessage());
-            return param; // Return unencoded as fallback
         }
     }
 }
