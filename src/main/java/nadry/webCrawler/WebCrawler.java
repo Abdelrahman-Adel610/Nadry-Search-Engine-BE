@@ -4,15 +4,11 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.HashSet;
+
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Queue;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.jsoup.Connection;
@@ -21,7 +17,6 @@ import org.jsoup.nodes.*;
 import org.jsoup.select.Elements;
 
 public class WebCrawler implements Runnable {
-	private String start_url;
 	//  REOMVED and using the database's data
 	//	private static Set<String> compactStrings = new HashSet<String>();
 	//	private static Set<String> visitedURLs = new HashSet<String>();
@@ -45,16 +40,6 @@ public class WebCrawler implements Runnable {
 			database.enqueueUrl(link);
 		}
 	}
-	
-//	public void start() throws IOException {
-//		database = new MongoJava("mongodb://localhost:27017/","Ndry");
-//		robotChecker = new RobotChecker();
-//		try {
-//			crawl(start_url);
-//		} catch (URISyntaxException e) {
-//			e.printStackTrace();
-//		}
-//	}
 	
 	@Override
 	public void run() {
@@ -93,72 +78,41 @@ public class WebCrawler implements Runnable {
 			// adding the compact string to database
 			// compactStrings.add(cs); <== removed after database
 			database.addCompactString(cs);
-			
-//			// 6) downloading html doc inside a file
-//			try {
-//				// 6.1- creating fileName 
-//				String filename;
-//				filename = generateFilenameFromUrlPath(url);
-//				// 6.2- path to store
-//				Path storageDirectory = Paths.get("D:\\faculty stuff\\2nd year\\2nd term\\projects\\Ndry search engin\\search-engin\\", dir);
-//				// checks if the given path exists or not, if not it creates one and so on.
-//				Files.createDirectories(storageDirectory);
-//				// creates an actual path
-//				Path filePath = storageDirectory.resolve(filename+".html");
-//				
-//				String fullHTML = doc.outerHtml();
-//				System.out.println(filePath);
-//	
-//				// adding the url and path to links and paths url for the indexer (mapping the results to user)
-//				links.add(url);
-//				paths.add(filePath);
-//				
-//				// 6.3- Write the HTML to the file (using UTF-8 encoding)
-//			    Files.writeString(filePath, fullHTML, StandardCharsets.UTF_8);
-//			} catch (URISyntaxException | IOException e) {
-//				// TODO Auto-generated catch block
-//				e.printStackTrace();
-//			}
-			
-//			System.out.println(crawledPages+ " Thread "+Thread.currentThread().getId());
+
 			System.out.println(crawledPages);
 			
-			// log current URL
-//	        System.out.println("Crawling: " + url);
-	        
-	        // visitedURLs.add(url); <== removed after database
-	        // 7) Mark it as visited
-	        database.markVisited(url);
-	        
-	        // 8) inc the number of crawled Pages
+			// visitedURLs.add(url); <== removed after database
+			// 7) Mark it as visited
+			database.markVisited(url);
+			
+			// 8) inc the number of crawled Pages
 //       	 	crawledPages++;
-       	 	crawledPages = database.incrementAndGetCrawledCount();
+			crawledPages = database.incrementAndGetCrawledCount();
 
-					// 9) adding the html to the database to be indexed
-					database.addCrawledPage(url,doc.html());
+			// 9) adding the html to the database to be indexed
+			database.addCrawledPage(url,doc.html());
 
-       	 	if(database.getQueueCount()<1000) {
-       	 		extractHyperLinks = true;
-       	 	}
-       	 	if(!extractHyperLinks || database.getQueueCount()>= 2*MAX_PAGES_NUMBER) {
-       	 		extractHyperLinks = false;
-//	        	notifyAll();	// in case of a thread sleeping
-       	 		continue;
-       	 	}
-       	 	
-	        Elements links = doc.select("a[href]");
-	        for(Element link:links) {
-	        	 String nextUrl = link.absUrl("href");
-	        	 if (nextUrl == null || nextUrl.isEmpty() ||
-        			 !(nextUrl.toLowerCase().startsWith("http://") ||
-        			  nextUrl.toLowerCase().startsWith("https://"))) {
-    		        // skipping non-standard link
-    		        System.out.println("   Skipping non-HTTP link: " + nextUrl);
-    		        continue; // Skip to the next link
-    		    }
-	        	 // normalizing the link
-	        	 String nextUrlNormalized="";
-	        	 
+			if(database.getQueueCount()<1000) {
+				extractHyperLinks = true;
+			}
+			if(!extractHyperLinks || database.getQueueCount()>= 2*MAX_PAGES_NUMBER) {
+				extractHyperLinks = false;
+				continue;
+			}
+			
+			Elements links = doc.select("a[href]");
+			for(Element link:links) {
+					String nextUrl = link.absUrl("href");
+					if (nextUrl == null || nextUrl.isEmpty() ||
+						!(nextUrl.toLowerCase().startsWith("http://") ||
+						nextUrl.toLowerCase().startsWith("https://"))) {
+						// skipping non-standard link
+						System.out.println("   Skipping non-HTTP link: " + nextUrl);
+						continue; // Skip to the next link
+				}
+					// normalizing the link
+					String nextUrlNormalized="";
+					
 				try {
 					nextUrlNormalized = normalizeLink(nextUrl);
 				} catch (URISyntaxException e) {
