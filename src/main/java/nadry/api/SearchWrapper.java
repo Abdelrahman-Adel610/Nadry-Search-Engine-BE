@@ -1,4 +1,4 @@
-package nadry.api;
+package  nadry.api;
 
 // Import classes from the indexer package
 import java.lang.reflect.Field;
@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -20,12 +21,14 @@ import org.slf4j.Logger; // Import Pattern
 import org.slf4j.LoggerFactory;
 
 import nadry.indexer.InvertedIndex;
+import nadry.indexer.InvertedIndex.FieldType;
+import nadry.indexer.InvertedIndex.Posting;
 import nadry.indexer.MongoDBIndexStore;
 import nadry.indexer.StopWordFilter;
 import nadry.indexer.Tokenizer;
-import nadry.indexer.InvertedIndex.FieldType;
-import nadry.indexer.InvertedIndex.Posting;
 import nadry.ranker.QueryDocument;
+// Add imports for sentence boundary detection
+import java.text.BreakIterator;
 
 /**
  * Wrapper class to expose tokenization and search functionality to Node.js through java-bridge
@@ -46,9 +49,9 @@ public class SearchWrapper {
     public SearchWrapper() {
         try {
             // MongoDB configuration - get from environment or use default
-            this.mongoConnectionString = nadry.Config.DATABASE_URL;
-            this.databaseName = nadry.Config.DATABASE_NAME; 
-            this.collectionName = nadry.Config.INVERTED_INDEX_COLLECTION_NAME;
+            this.mongoConnectionString =  "mongodb+srv://admin:admin@cluster0.wtcajo8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+            this.databaseName = "search_engine"; // <-- Updated database name
+            this.collectionName = "inverted_index";
             
             StopWordFilter stopWordFilter = new StopWordFilter();
             this.tokenizer = new Tokenizer(stopWordFilter);
@@ -77,23 +80,53 @@ public class SearchWrapper {
     }
     
     /**
+     * Class to hold search results and metadata
+     */
+    public static class SearchResult {
+        private final List<Map<String, Object>> results;
+        private final int totalResults;
+        private final int totalPages;
+        private final int currentPage;
+        
+        public SearchResult(List<Map<String, Object>> results, int totalResults, int totalPages, int currentPage) {
+            this.results = results;
+            this.totalResults = totalResults;
+            this.totalPages = totalPages;
+            this.currentPage = currentPage;
+        }
+        
+        public List<Map<String, Object>> getResults() {
+            return results;
+        }
+        
+        public int getTotalResults() {
+            return totalResults;
+        }
+        
+        public int getTotalPages() {
+            return totalPages;
+        }
+        
+        public int getCurrentPage() {
+            return currentPage;
+        }
+    }
+    
+    /**
      * Search the index using the tokenized query terms with multithreading and pagination
      * 
      * @param query The search query to tokenize and search
      * @param page The page number (0-based) to return
      * @param pageSize The number of results per page
-     * @return Map containing the paginated results and metadata including total count
+     * @return SearchResult containing results and metadata
      */
-    public Map<String, Object> searchWithMetadata(String query, int page, int pageSize) {
+    public SearchResult searchWithMetadata(String query, int page, int pageSize) {
         try {
             // Tokenize the query
             String[] queryTokens = tokenize(query);
             
             if (queryTokens.length == 0) {
-                Map<String, Object> emptyResponse = new HashMap<>();
-                emptyResponse.put("results", Collections.emptyList());
-                emptyResponse.put("totalResults", 0);
-                return emptyResponse;
+                return new SearchResult(Collections.emptyList(), 0, 0, page);
             }
             
             // Create a thread pool for parallel processing
@@ -165,16 +198,9 @@ public class SearchWrapper {
                 List<Map<String, Object>> paginatedResults = paginateResults(rankedResults, page, pageSize);
                 
                 // Only enrich the paginated results to reduce database queries
-                enrichResultsWithDocumentDetails(paginatedResults);
+                enrichResultsWithDocumentDetails(paginatedResults, queryTokens);
                 
-                // Create response with both results and metadata
-                Map<String, Object> response = new HashMap<>();
-                response.put("results", paginatedResults);
-                response.put("totalResults", totalResults);
-                response.put("totalPages", totalPages);
-                response.put("currentPage", page);
-                
-                return response;
+                return new SearchResult(paginatedResults, totalResults, totalPages, page);
             } finally {
                 // Properly shutdown the executor service
                 executor.shutdown();
@@ -189,32 +215,27 @@ public class SearchWrapper {
             }
         } catch (Exception e) {
             e.printStackTrace();
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("results", Collections.emptyList());
-            errorResponse.put("totalResults", 0);
-            errorResponse.put("error", e.getMessage());
-            return errorResponse;
+            return new SearchResult(Collections.emptyList(), 0, 0, page);
         }
     }
     
     /**
      * Search the index using the tokenized query terms with multithreading and pagination
-     * Returns a Map with results and pagination metadata
      * 
      * @param query The search query to tokenize and search
      * @param page The page number (0-based) to return
      * @param pageSize The number of results per page
-     * @return Map containing search results and pagination metadata
+     * @return SearchResult containing results and metadata
      */
-    public Map<String, Object> search(String query, int page, int pageSize) {
+    public SearchResult search(String query, int page, int pageSize) {
         return searchWithMetadata(query, page, pageSize);
     }
     
     /**
      * Original search method - for backward compatibility
-     * Uses default pagination (first page with 10 results) and returns Map with metadata
+     * Uses default pagination (first page with 10 results)
      */
-    public Map<String, Object> search(String query) {
+    public SearchResult search(String query) {
         return search(query, 0, 10); // Default: first page with 10 results
     }
     
@@ -222,9 +243,8 @@ public class SearchWrapper {
      * Compatibility method to support old code that expects List<Map<String, Object>> return type
      */
     public List<Map<String, Object>> searchAsList(String query, int page, int pageSize) {
-        Map<String, Object> response = search(query, page, pageSize);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> results = (List<Map<String, Object>>) response.get("results");
+        SearchResult response = search(query, page, pageSize);
+        List<Map<String, Object>> results = response.getResults();
         return results != null ? results : Collections.emptyList();
     }
     
@@ -241,29 +261,24 @@ public class SearchWrapper {
      * @param phrase The exact phrase to search for
      * @param page The page number (0-based) to return
      * @param pageSize The number of results per page
-     * @return Map containing search results and pagination metadata
+     * @return SearchResult containing results and metadata
      */
-    public Map<String, Object> phraseSearch(String phrase, int page, int pageSize) {
-        logger.info("Starting phrase search for: \"{}\" (page: {}, pageSize: {})", phrase, page, pageSize);
+    public SearchResult phraseSearch(String phrase, int page, int pageSize) {
      
-        // Initialize response map with default values
-        Map<String, Object> response = new HashMap<>();
-        response.put("results", Collections.emptyList());
-        response.put("totalResults", 0);
-        response.put("totalPages", 0);
-        response.put("currentPage", page);
+        // Validate pagination parameters
+        if (page < 0) page = 0;
+        if (pageSize <= 0) pageSize = 10;
         
         // Phrase is Tokenized
         String[] phraseTokens = tokenize(phrase); 
+        
         // All the phrase parts are stopping words
         if (phraseTokens.length == 0) {
-            logger.warn("Phrase tokenization resulted in zero valid processed tokens.");
-            return response;
+            return new SearchResult(Collections.emptyList(), 0, 0, page);
         }
 
         // If only one valid token remains, delegate to regular search
         if (phraseTokens.length == 1) {
-            logger.info("Phrase has only one valid token after processing ('{}'), delegating to regular search.", phraseTokens[0]);
             return searchWithMetadata(phraseTokens[0], page, pageSize);
         }
 
@@ -272,8 +287,7 @@ public class SearchWrapper {
 
         // if first term doesn't exist anyway return EMPTY LIST
         if (firstTermPostings.isEmpty()) {
-            logger.info("No postings found for the first processed term: {}", phraseTokens[0]);
-            return response;
+            return new SearchResult(Collections.emptyList(), 0, 0, page);
         }
 
         // Map to store potential matches <DocId, List<PotentialMatch>>
@@ -289,51 +303,33 @@ public class SearchWrapper {
             }
         }
         
-        // DEBUUUUUUUUUUUUUUGGGGGGGGGG LOG
-{        StringBuilder sb = new StringBuilder();
-        sb.append("\n==== POTENTIAL MATCHES DETAILS ====\n");
-        potentialMatches.forEach((docId, matches) -> {
-            sb.append("  DocID: ").append(docId).append("\n");
-            sb.append("    URL: ").append(matches.isEmpty() ? "N/A" : matches.get(0).url).append("\n");
-            sb.append("    Total Matches: ").append(matches.size()).append("\n");
-            
-            // Print each match individually
-            int matchCounter = 1;
-            for (PotentialMatch match : matches) {
-                sb.append("    Match #").append(matchCounter++).append(": ")
-                  .append("Field=").append(match.field)
-                  .append(", Position=").append(match.position)
-                  .append("\n");
-            }
-        });
-        sb.append("====================================\n");
-        logger.info(sb.toString()); // Changed to INFO level to ensure visibility
-        
-        logger.info("Initial potential matches based on first term: {}", potentialMatches.size());}
-
-        // DEBUUUUUUUUUUUUUUGGGGGGGGGG LOG
-
-
-        
-        // Check subsequent terms
+        // Check subsequent terms - ensuring EXACT phrase match by requiring consecutive positions
         for (int i = 1; i < phraseTokens.length; i++) {
             String currentTerm = phraseTokens[i];
             List<Posting> currentTermPostings = index.getPostings(currentTerm);
             Map<String, List<PotentialMatch>> nextPotentialMatches = new HashMap<>();
 
+            // If the current term has no postings, the phrase cannot be matched
+            if (currentTermPostings == null || currentTermPostings.isEmpty()) {
+                potentialMatches.clear(); // Clear matches as the phrase is broken
+                break;
+            }
+
             for (Posting p : currentTermPostings) {
                 String docId = p.getDocId();
+                // Only consider documents that matched the previous part of the phrase
                 if (potentialMatches.containsKey(docId)) {
                     List<PotentialMatch> existingMatches = potentialMatches.get(docId);
                     for (PotentialMatch match : existingMatches) {
-                        // Check if the current term appears in the *same field* at the *next position*
+                        // EXACT MATCH REQUIREMENT:
+                        // 1. The current term must be in the same field as the previous term match.
                         if (p.getFieldTypes().contains(match.field)) {
+                            // 2. The current term's position must be exactly one greater than the previous term's position.
                             for (int currentPos : p.getPositions(match.field)) {
                                 if (currentPos == match.position + 1) {
-                                    // Found a consecutive term, update the potential match's position
                                     nextPotentialMatches.computeIfAbsent(docId, k -> new ArrayList<>())
                                                         .add(new PotentialMatch(docId, match.url, match.field, currentPos));
-                                    break; // Move to the next potential match for this docId
+                                    break; 
                                 }
                             }
                         }
@@ -341,64 +337,70 @@ public class SearchWrapper {
                 }
             }
             potentialMatches = nextPotentialMatches; // Update potential matches for the next iteration
-            logger.debug("Potential matches after term '{}': {}", currentTerm, potentialMatches.size());
+            
+            // If no documents contain the sequence up to this term, stop searching.
             if (potentialMatches.isEmpty()) {
-                logger.info("No potential matches left after term: {}", currentTerm);
-                break; // No need to check further terms if no matches remain
+                break; 
             }
         }
 
-        // Collect final results from remaining potential matches
+        // Collect final results from remaining potential matches - these contain the full exact phrase
         Set<String> matchedDocIds = potentialMatches.keySet();
-        logger.info("Found {} documents containing the exact phrase.", matchedDocIds.size());
 
         // If we have matches, create mappings for ranking
         if (!matchedDocIds.isEmpty()) {
-            // Create mappings from matched documents
-            Map<String, Map<String, Integer>> docTermFrequencies = new HashMap<>();
-            Map<String, String> docUrls = new HashMap<>();
-            
-            // Populate term frequencies (all terms in phrase have frequency 1)
-            for (String docId : matchedDocIds) {
-                Map<String, Integer> docTerms = new HashMap<>();
-                for (String token : phraseTokens) {
-                    docTerms.put(token, 1);
+            try {
+                // Create mappings from matched documents
+                Map<String, Map<String, Integer>> docTermFrequencies = new HashMap<>();
+                Map<String, String> docUrls = new HashMap<>();
+                
+                // Populate term frequencies (all terms in phrase have frequency 1)
+                for (String docId : matchedDocIds) {
+                    Map<String, Integer> docTerms = new HashMap<>();
+                    for (String token : phraseTokens) {
+                        docTerms.put(token, 1);
+                    }
+                    String url = potentialMatches.get(docId).get(0).url;
+                    docTermFrequencies.put(docId, docTerms);
+                    docUrls.put(docId, url);
                 }
-                String url = potentialMatches.get(docId).get(0).url;
-                docTermFrequencies.put(docId, docTerms);
-                docUrls.put(docId, url);
+                
+                // Use helper method to rank and format results
+                List<Map<String, Object>> results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
+                
+                // Ensure results is not null
+                if (results == null) {
+                    results = Collections.emptyList();
+                }
+                
+                // Enrich phrase search results with document details (pass phraseTokens for snippet)
+                // Note: This call was previously enriching 'results', now enriching 'paginatedResults'
+                // enrichResultsWithDocumentDetails(results); // Old call
+                
+                // Calculate pagination metadata
+                int totalResults = results.size();
+                int totalPages = (int) Math.ceil((double) totalResults / pageSize);
+                
+                // Apply pagination to get just the current page of results
+                List<Map<String, Object>> paginatedResults = paginateResults(results, page, pageSize);
+
+                // Enrich the *paginated* results with query context
+                enrichResultsWithDocumentDetails(paginatedResults, phraseTokens);
+                
+                return new SearchResult(paginatedResults, totalResults, totalPages, page);
+            } catch (Exception e) {
+                return new SearchResult(Collections.emptyList(), 0, 0, page);
             }
-            
-            // Use helper method to rank and format results
-            logger.info("Ranking {} documents that match the phrase", matchedDocIds.size());
-            List<Map<String, Object>> results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
-            
-            // Enrich phrase search results with document details
-            enrichResultsWithDocumentDetails(results);
-            
-            // Calculate pagination metadata
-            int totalResults = results.size();
-            int totalPages = (int) Math.ceil((double) totalResults / pageSize);
-            
-            // Apply pagination to get just the current page of results
-            List<Map<String, Object>> paginatedResults = paginateResults(results, page, pageSize);
-            
-            // Update response with results and metadata
-            response.put("results", paginatedResults);
-            response.put("totalResults", totalResults);
-            response.put("totalPages", totalPages);
-            response.put("currentPage", page);
         }
 
-        logger.info("Phrase search completed with {} total results", response.get("totalResults"));
-        return response;
+        return new SearchResult(Collections.emptyList(), 0, 0, page);
     }
     
     /**
      * Original phraseSearch method - for backward compatibility
      * Uses default pagination (first page with 10 results)
      */
-    public Map<String, Object> phraseSearch(String phrase) {
+    public SearchResult phraseSearch(String phrase) {
         return phraseSearch(phrase, 0, 10); // Default: first page with 10 results
     }
     
@@ -406,9 +408,8 @@ public class SearchWrapper {
      * Compatibility method to support old code that expects List<Map<String, Object>> return type
      */
     public List<Map<String, Object>> phraseSearchAsList(String phrase, int page, int pageSize) {
-        Map<String, Object> response = phraseSearch(phrase, page, pageSize);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> results = (List<Map<String, Object>>) response.get("results");
+        SearchResult response = phraseSearch(phrase, page, pageSize);
+        List<Map<String, Object>> results = response.getResults();
         return results != null ? results : Collections.emptyList();
     }
     
@@ -490,11 +491,13 @@ public class SearchWrapper {
     }
 
     /**
-     * Enriches search results with document details from MongoDB (title, description)
+     * Enriches search results with document details from MongoDB.
+     * Instead of description, it returns the first sentence containing a query term.
      * 
      * @param results List of search results to be enriched
+     * @param queryTokens The tokens from the search query
      */
-    private void enrichResultsWithDocumentDetails(List<Map<String, Object>> results) {
+    private void enrichResultsWithDocumentDetails(List<Map<String, Object>> results, String[] queryTokens) {
         if (results == null || results.isEmpty()) {
             return;
         }
@@ -506,32 +509,134 @@ public class SearchWrapper {
             .collect(Collectors.toList());
         
         if (docIds.isEmpty()) {
-            logger.warn("No valid document IDs found in search results");
             return;
         }
         
         try {
+            // Fetch details including content for finding matches
             Map<String, Map<String, Object>> docDetails = mongoStore.getDocumentsByIds(docIds);
             
             for (Map<String, Object> result : results) {
                 String docId = (String) result.get("id");
                 if (docId != null && docDetails.containsKey(docId)) {
                     Map<String, Object> details = docDetails.get(docId);
-                    // Add title and description if available
+                    
+                    // Add title if available
                     if (details.containsKey("title")) {
                         result.put("title", details.get("title"));
+                    } else {
+                        result.put("title", "No Title Available");
                     }
-                    if (details.containsKey("description")) {
+                    
+                    // Get the content and find first match
+                    String content = (String) details.get("content");
+                    if (content != null && queryTokens != null && queryTokens.length > 0) {
+                        // Find first match context and use it instead of description
+                        String matchContext = findFirstContextMatch(content, queryTokens);
+                        result.put("description", matchContext);
+                    } else if (details.containsKey("description")) {
+                        // Fall back to description if no match found or no content/tokens
                         result.put("description", details.get("description"));
+                    } else {
+                        result.put("description", "No description available.");
                     }
+                } else {
+                    // Handle cases where doc details might be missing
+                    result.putIfAbsent("title", "No Title Available");
+                    result.put("description", "Details not available.");
                 }
             }
             
-            logger.info("Enriched {} search results with document details", results.size());
         } catch (Exception e) {
-            logger.error("Error enriching results with document details", e);
+            // Add default values in case of error during enrichment
+            for (Map<String, Object> result : results) {
+                result.putIfAbsent("title", "Error fetching title");
+                result.put("description", "Error fetching context.");
+            }
         }
     }
+    
+    /**
+     * Finds the first sentence in the content that contains any of the query tokens.
+     * 
+     * @param content The document content to search within
+     * @param queryTokens The search query tokens to look for
+     * @return The first sentence containing any query token, or a fallback if none found
+     */
+    private String findFirstContextMatch(String content, String[] queryTokens) {
+        if (content == null || content.isEmpty() || queryTokens == null || queryTokens.length == 0) {
+            return "No content available or no valid search terms.";
+        }
+        
+        String lowerCaseContent = content.toLowerCase();
+        
+        for (String token : queryTokens) {
+            if (token == null || token.isEmpty()) continue;
+            
+            String lowerCaseToken = token.toLowerCase();
+            int matchIndex = lowerCaseContent.indexOf(lowerCaseToken);
+            
+            if (matchIndex != -1) {
+                // Found a match, extract the sentence containing it
+                BreakIterator iterator = BreakIterator.getSentenceInstance(Locale.US);
+                iterator.setText(content);
+                
+                // Find sentence boundaries
+                int start = iterator.preceding(matchIndex + 1);
+                if (start == BreakIterator.DONE) {
+                    start = 0; // Start of text if no sentence break found before match
+                }
+                
+                int end = iterator.following(matchIndex);
+                if (end == BreakIterator.DONE) {
+                    end = content.length(); // End of text if no sentence break found after match
+                }
+                
+                // Extract the sentence
+                String sentence = content.substring(start, end).trim();
+                
+                // Truncate very long sentences for better display
+                final int MAX_LENGTH = 240;
+                if (sentence.length() > MAX_LENGTH) {
+                    // Try to center the matched token in the snippet
+                    int tokenPosition = sentence.toLowerCase().indexOf(lowerCaseToken);
+                    int snippetStart = Math.max(0, tokenPosition - (MAX_LENGTH/3));
+                    int snippetEnd = Math.min(sentence.length(), snippetStart + MAX_LENGTH);
+                    
+                    // Add ellipsis if truncated
+                    String prefix = snippetStart > 0 ? "..." : "";
+                    String suffix = snippetEnd < sentence.length() ? "..." : "";
+                    
+                    sentence = prefix + sentence.substring(snippetStart, snippetEnd) + suffix;
+                }
+                
+                return sentence;
+            }
+        }
+        
+        // If no sentences contain any query tokens, return the first sentence as fallback
+        BreakIterator iterator = BreakIterator.getSentenceInstance(Locale.US);
+        iterator.setText(content);
+        int start = iterator.first();
+        int end = iterator.next();
+        
+        if (end != BreakIterator.DONE) {
+            String firstSentence = content.substring(start, end).trim();
+            // Truncate if too long
+            if (firstSentence.length() > 200) {
+                firstSentence = firstSentence.substring(0, 200) + "...";
+            }
+            return firstSentence;
+        }
+        
+        // If no sentences found at all, return beginning of content
+        if (content.length() > 200) {
+            return content.substring(0, 200) + "...";
+        }
+        
+        return content;
+    }
+
 
     /**
      * Helper method to paginate search results
@@ -552,13 +657,10 @@ public class SearchWrapper {
         
         // Return empty list if startIndex is beyond available results
         if (startIndex >= results.size()) {
-            logger.info("Requested page {} is beyond available results (total: {})", page, results.size());
             return Collections.emptyList();
         }
         
         List<Map<String, Object>> paginatedResults = results.subList(startIndex, endIndex);
-        logger.info("Returning {} results (page {}, items {}-{}), from total of {}", 
-                paginatedResults.size(), page, startIndex, endIndex-1, results.size());
         
         return paginatedResults;
     }

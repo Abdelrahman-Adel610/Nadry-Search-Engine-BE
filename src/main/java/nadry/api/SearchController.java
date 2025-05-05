@@ -1,4 +1,4 @@
-package nadry.api;
+package  nadry.api;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -36,10 +36,10 @@ public class SearchController {
 
     // Inner class to hold cached data
     private static class CachedSearchResult {
-        final Map<String, Object> results;
+        final SearchWrapper.SearchResult results;
         final double searchTimeSec;
 
-        CachedSearchResult(Map<String, Object> results, double searchTimeSec) {
+        CachedSearchResult(SearchWrapper.SearchResult results, double searchTimeSec) {
             this.results = results;
             this.searchTimeSec = searchTimeSec;
         }
@@ -69,7 +69,7 @@ public class SearchController {
                 isPhraseSearch = true;
             }
             
-            Map<String, Object> searchResults;
+            SearchWrapper.SearchResult searchResults;
             double searchTimeSec;
 
             // Check cache
@@ -79,53 +79,38 @@ public class SearchController {
                 // Cache HIT
                 searchResults = cachedData.results;
                 searchTimeSec = cachedData.searchTimeSec;
-                System.out.println("Cache HIT for query: \"" + searchQuery + "\". Using stored time: " + searchTimeSec + "s");
             } else {
                 // Cache MISS
-                System.out.println("Cache MISS for query: \"" + searchQuery + "\"");
                 long startTime = System.currentTimeMillis();
 
-                // Perform search based on type
+                // Perform search based on type (convert 1-based to 0-based page)
                 if (isPhraseSearch) {
-                    searchResults = searchWrapper.phraseSearch(searchQuery, page - 1, limit); // Convert 1-based to 0-based page
+                    searchResults = searchWrapper.phraseSearch(searchQuery, page - 1, limit);
                 } else {
-                    searchResults = searchWrapper.search(searchQuery, page - 1, limit); // Convert 1-based to 0-based page
+                    searchResults = searchWrapper.search(searchQuery, page - 1, limit);
                 }
 
                 searchTimeSec = (System.currentTimeMillis() - startTime) / 1000.0;
 
                 // Store in cache
                 searchCache.put(searchQuery, new CachedSearchResult(searchResults, searchTimeSec));
-                System.out.println("Stored results in cache for query: \"" + searchQuery + "\" with time: " + searchTimeSec + "s");
             }
-
-            // Get the results list from the response
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> resultsList = (List<Map<String, Object>>) searchResults.get("results");
-            
-            // Get metadata from the search results
-            int totalResults = ((Number) searchResults.getOrDefault("totalResults", 0)).intValue();
-            int totalPages = ((Number) searchResults.getOrDefault("totalPages", 0)).intValue();
-            int currentPage = ((Number) searchResults.getOrDefault("currentPage", 0)).intValue() + 1; // Convert 0-based to 1-based page
             
             // Tokenize the original full query for metadata
             String[] tokens = searchWrapper.tokenize(query);
             
             // Build response
             response.put("success", true);
-            response.put("data", resultsList);
-            response.put("totalPages", totalPages);
-            response.put("currentPage", currentPage);
-            response.put("totalResults", totalResults);
+            response.put("data", searchResults.getResults());
+            response.put("totalPages", searchResults.getTotalPages());
+            response.put("currentPage", searchResults.getCurrentPage() + 1); // Convert 0-based to 1-based page
+            response.put("totalResults", searchResults.getTotalResults());
             response.put("tokens", tokens);
-            response.put("searchTimeSec", searchTimeSec); // Use cached or calculated time
+            response.put("searchTimeSec", searchTimeSec);
             
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
-            System.err.println("Error during search: " + e.getMessage());
-            e.printStackTrace();
-            
             response.put("success", false);
             response.put("message", "An error occurred during search");
             response.put("error", e.getMessage());
@@ -176,8 +161,7 @@ public class SearchController {
             response.put("source", "database"); // Mimic JS response structure
             
             return ResponseEntity.ok(response);
-        } catch (Exception e) { // Catch Supabase or other exceptions
-            System.err.println("Error fetching suggestions: " + e.getMessage());
+        } catch (Exception e) { 
             response.put("success", false);
             response.put("message", "Error accessing suggestion database");
             response.put("error", e.getMessage());
@@ -197,21 +181,14 @@ public class SearchController {
         }
 
         try {
-            boolean processed = supabaseService.saveSearchQuery(query.trim());
+            // Call saveSearchQuery method which now returns void
+            supabaseService.saveSearchQuery(query.trim());
             
-            // The JS logic returns success even if it already existed. Mimicking that.
-            if (processed) { // `processed` is true if saved OR already existed
-                response.put("success", true);
-                response.put("message", "Search query processed successfully"); // Matches JS message
-                return ResponseEntity.ok(response);
-            } else {
-                 // This case means there was an error during check or insert
-                response.put("success", false);
-                response.put("message", "Failed to save search query due to a database error.");
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response); 
-            }
+            // Since the method no longer returns a status, we assume success if no exception is thrown
+            response.put("success", true);
+            response.put("message", "Search query processed successfully"); // Matches JS message
+            return ResponseEntity.ok(response);
         } catch (Exception e) { // Catch Supabase or other exceptions
-            System.err.println("Error saving search: " + e.getMessage());
             response.put("success", false);
             response.put("message", "An error occurred while saving the search query");
             response.put("error", e.getMessage());

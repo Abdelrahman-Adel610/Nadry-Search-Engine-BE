@@ -12,7 +12,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus; // <-- Add this import
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException; // Import this
 import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.client.HttpClientErrorException; // Add this import
 
 @Service
 public class SupabaseService {
@@ -107,88 +107,60 @@ public class SupabaseService {
     }
 
     /**
-     * Save search query to Supabase - using RestTemplate
+     * Saves a search query to the Supabase 'Suggestions' table.
+     * Handles potential duplicate entries gracefully.
+     *
+     * @param query The search query string to save.
      */
-    public boolean saveSearchQuery(String query) {
-        // 1. Check if query exists
-        // Correct Supabase REST syntax: column=eq.value
-         String checkUrl = UriComponentsBuilder.fromHttpUrl(supabaseUrl)
+    public void saveSearchQuery(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            logger.warn("Attempted to save an empty or null search query.");
+            return;
+        }
+
+        String url = UriComponentsBuilder.fromHttpUrl(supabaseUrl)
                 .path("/rest/v1/Suggestions")
-                .queryParam("select", "id")
-                .queryParam("Suggestions", "eq." + query) // Use eq. filter correctly
-                .queryParam("limit", "1")
-                .encode(StandardCharsets.UTF_8) // Ensure query value is encoded
+                .encode(StandardCharsets.UTF_8)
                 .toUriString();
 
-        logger.debug("Checking existence with URL: {}", checkUrl);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("apikey", supabaseKey); // Use the injected key
+        headers.set("Authorization", "Bearer " + supabaseKey); // Use the injected key
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Prefer", "return=minimal"); // Don't need the inserted row back
+
+        // Create the request body
+        Map<String, String> requestBody = new HashMap<>();
+        requestBody.put("Suggestions", query.trim()); // Ensure trimming before saving
+
+        HttpEntity<Map<String, String>> entity = new HttpEntity<>(requestBody, headers);
 
         try {
-            HttpEntity<String> checkEntity = new HttpEntity<>(headers);
-            ResponseEntity<String> checkResponse = restTemplate.exchange(
-                checkUrl, HttpMethod.GET, checkEntity, String.class);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
 
-            if (checkResponse.getStatusCode().is2xxSuccessful() && checkResponse.getBody() != null) {
-                logger.debug("Supabase check response body: {}", checkResponse.getBody());
-                List<Map<String, Object>> existingItems = objectMapper.readValue(
-                    checkResponse.getBody(),
-                    new TypeReference<List<Map<String, Object>>>() {}
-                );
-
-                if (!existingItems.isEmpty()) {
-                    logger.info("Query \"{}\" already exists in database (RestTemplate).", query);
-                    return true; // Mimic JS: success if exists or saved
-                }
-
-                // 2. Query doesn't exist, insert it
-                String insertUrl = UriComponentsBuilder.fromHttpUrl(supabaseUrl)
-                        .path("/rest/v1/Suggestions")
-                        .toUriString();
-
-                Map<String, String> newRecord = new HashMap<>();
-                newRecord.put("Suggestions", query);
-
-                HttpHeaders insertHeaders = new HttpHeaders();
-                insertHeaders.addAll(this.headers);
-                insertHeaders.set("Prefer", "return=minimal"); // Keep minimal return
-
-                HttpEntity<String> insertEntity = new HttpEntity<>(
-                    objectMapper.writeValueAsString(newRecord),
-                    insertHeaders);
-
-                logger.debug("Inserting query with URL: {} and Body: {}", insertUrl, objectMapper.writeValueAsString(newRecord));
-
-                try {
-                    ResponseEntity<String> insertResponse = restTemplate.exchange(
-                        insertUrl, HttpMethod.POST, insertEntity, String.class);
-
-                    // Check specifically for 201 Created
-                    if (insertResponse.getStatusCode() == HttpStatus.CREATED) {
-                        logger.info("Saved new search query: \"{}\" (RestTemplate)", query);
-                        return true;
-                    } else {
-                        // Log detailed error for non-201 responses during insert
-                        logger.error("Error inserting query (RestTemplate). Status: {}, Body: {}", insertResponse.getStatusCode(), insertResponse.getBody());
-                        return false;
-                    }
-                } catch (HttpClientErrorException.Conflict e) {
-                    // Specifically catch the 409 Conflict error
-                    logger.warn("Query '{}' already exists (encountered 409 Conflict on insert attempt). Considering processed.", query);
-                    return true; // Treat conflict on insert as success (it exists now)
-                } catch (Exception e) {
-                    // Catch other potential errors during insert
-                     logger.error("Error inserting query '{}' into Supabase: {}", query, e.getMessage(), e);
-                     return false;
-                }
+            if (response.getStatusCode().is2xxSuccessful()) {
+                logger.info("Successfully saved search query: '{}'", query.trim());
             } else {
-                // Log detailed error for non-2xx responses during check
-                logger.error("Error checking query existence (RestTemplate). Status: {}, Body: {}", checkResponse.getStatusCode(), checkResponse.getBody());
-                return false;
+                // Log unexpected non-2xx success responses
+                logger.warn("Received non-successful status code {} when saving query '{}': {}",
+                        response.getStatusCode(), query.trim(), response.getBody());
             }
-
+        } catch (HttpClientErrorException e) {
+            // Specifically handle the 409 Conflict error (duplicate entry)
+            if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                logger.info("Search query '{}' already exists in suggestions. No action needed.", query.trim());
+                // Optionally parse the error message if more details are needed, but often just logging is enough.
+                // Example: logger.debug("Conflict details: {}", e.getResponseBodyAsString());
+            } else {
+                // Log other client-side HTTP errors (4xx)
+                logger.error("HTTP client error saving search query '{}': Status={}, Body={}",
+                        query.trim(), e.getStatusCode(), e.getResponseBodyAsString(), e);
+                // Depending on requirements, you might re-throw or handle differently
+            }
         } catch (Exception e) {
-             // Log detailed error for exceptions during the whole process
-            logger.error("Error saving search query '{}' (RestTemplate): {}", query, e.getMessage(), e);
-            return false;
+            // Catch all other exceptions (network issues, server errors 5xx, etc.)
+            logger.error("Error saving search query '{}' to Supabase: {}", query.trim(), e.getMessage(), e);
+            // Depending on requirements, you might re-throw or handle differently
         }
     }
 }
