@@ -4,6 +4,7 @@ package  nadry.api;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet; // Corrected importions;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -345,54 +346,72 @@ public class SearchWrapper {
         }
 
         // Collect final results from remaining potential matches - these contain the full exact phrase
-        Set<String> matchedDocIds = potentialMatches.keySet();
+        Set<String> positionallyMatchedDocIds = potentialMatches.keySet();
 
-        // If we have matches, create mappings for ranking
-        if (!matchedDocIds.isEmpty()) {
+        // If we have potential matches based on position, perform final content check
+        if (!positionallyMatchedDocIds.isEmpty()) {
             try {
-                // Create mappings from matched documents
-                Map<String, Map<String, Integer>> docTermFrequencies = new HashMap<>();
-                Map<String, String> docUrls = new HashMap<>();
+                // Fetch content for potential matches
+                Map<String, Map<String, Object>> docDetails = mongoStore.getDocumentsByIds(new ArrayList<>(positionallyMatchedDocIds));
                 
-                // Populate term frequencies (all terms in phrase have frequency 1)
-                for (String docId : matchedDocIds) {
-                    Map<String, Integer> docTerms = new HashMap<>();
-                    for (String token : phraseTokens) {
-                        docTerms.put(token, 1);
-                    }
-                    String url = potentialMatches.get(docId).get(0).url;
-                    docTermFrequencies.put(docId, docTerms);
-                    docUrls.put(docId, url);
-                }
-                
-                // Use helper method to rank and format results
-                List<Map<String, Object>> results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
-                
-                // Ensure results is not null
-                if (results == null) {
-                    results = Collections.emptyList();
-                }
-                
-                // Enrich phrase search results with document details (pass phraseTokens for snippet)
-                // Note: This call was previously enriching 'results', now enriching 'paginatedResults'
-                // enrichResultsWithDocumentDetails(results); // Old call
-                
-                // Calculate pagination metadata
-                int totalResults = results.size();
-                int totalPages = (int) Math.ceil((double) totalResults / pageSize);
-                
-                // Apply pagination to get just the current page of results
-                List<Map<String, Object>> paginatedResults = paginateResults(results, page, pageSize);
+                Set<String> finalMatchedDocIds = new HashSet<>();
+                String lowerCasePhrase = phrase.toLowerCase(); // Prepare phrase for case-insensitive check
 
-                // Enrich the *paginated* results with query context
-                enrichResultsWithDocumentDetails(paginatedResults, phraseTokens);
-                
-                return new SearchResult(paginatedResults, totalResults, totalPages, page);
+                for (String docId : positionallyMatchedDocIds) {
+                    Map<String, Object> details = docDetails.get(docId);
+                    if (details != null && details.containsKey("content")) {
+                        String content = (String) details.get("content");
+                        if (content != null && content.toLowerCase().contains(lowerCasePhrase)) {
+                            finalMatchedDocIds.add(docId); // Add docId if content contains the phrase
+                        }
+                    }
+                }
+
+                // If we still have matches after the content check
+                if (!finalMatchedDocIds.isEmpty()) {
+                    // Create mappings from *final* matched documents
+                    Map<String, Map<String, Integer>> docTermFrequencies = new HashMap<>();
+                    Map<String, String> docUrls = new HashMap<>();
+                    
+                    // Populate term frequencies and URLs for the final matches
+                    for (String docId : finalMatchedDocIds) {
+                        Map<String, Integer> docTerms = new HashMap<>();
+                        for (String token : phraseTokens) {
+                            docTerms.put(token, 1); // Phrase matches imply frequency 1 for ranking purposes here
+                        }
+                        // Get URL from the original potentialMatches map (guaranteed to exist if docId is in finalMatchedDocIds)
+                        String url = potentialMatches.get(docId).get(0).url; 
+                        docTermFrequencies.put(docId, docTerms);
+                        docUrls.put(docId, url);
+                    }
+                    
+                    // Use helper method to rank and format results
+                    List<Map<String, Object>> results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
+                    
+                    // Ensure results is not null
+                    if (results == null) {
+                        results = Collections.emptyList();
+                    }
+                    
+                    // Calculate pagination metadata
+                    int totalResults = results.size();
+                    int totalPages = (int) Math.ceil((double) totalResults / pageSize);
+                    
+                    // Apply pagination to get just the current page of results
+                    List<Map<String, Object>> paginatedResults = paginateResults(results, page, pageSize);
+
+                    // Enrich the *paginated* results with query context
+                    enrichResultsWithDocumentDetails(paginatedResults, phraseTokens);
+                    
+                    return new SearchResult(paginatedResults, totalResults, totalPages, page);
+                }
             } catch (Exception e) {
+                logger.error("Error during phrase search content check or ranking for phrase: {}", phrase, e);
                 return new SearchResult(Collections.emptyList(), 0, 0, page);
             }
         }
 
+        // No matches found after positional or content check
         return new SearchResult(Collections.emptyList(), 0, 0, page);
     }
     

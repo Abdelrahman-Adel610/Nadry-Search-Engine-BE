@@ -3,7 +3,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap; // Import for cache
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -17,9 +16,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-// Added imports for Supabase exceptions if you want specific catches
-// import io.supabase.exceptions.ApiException;
-// import io.supabase.exceptions.HttpRequestException;
 
 @RestController
 @RequestMapping("/api")
@@ -30,20 +26,6 @@ public class SearchController {
 
     @Autowired // Inject the SupabaseService
     private SupabaseService supabaseService;
-
-    // Simple in-memory cache for search results
-    private final Map<String, CachedSearchResult> searchCache = new ConcurrentHashMap<>();
-
-    // Inner class to hold cached data
-    private static class CachedSearchResult {
-        final SearchWrapper.SearchResult results;
-        final double searchTimeSec;
-
-        CachedSearchResult(SearchWrapper.SearchResult results, double searchTimeSec) {
-            this.results = results;
-            this.searchTimeSec = searchTimeSec;
-        }
-    }
 
     @GetMapping("/test")
     public String test() {
@@ -60,7 +42,7 @@ public class SearchController {
         
         try {
             // Check for quoted phrases
-            String searchQuery = query; // The key for caching and searching
+            String searchQuery = query; // The key for searching
             boolean isPhraseSearch = false;
             List<String> phrases = extractQuotedPhrases(query);
             
@@ -72,29 +54,17 @@ public class SearchController {
             SearchWrapper.SearchResult searchResults;
             double searchTimeSec;
 
-            // Check cache
-            CachedSearchResult cachedData = searchCache.get(searchQuery);
+            // Always perform the search directly
+            long startTime = System.currentTimeMillis();
 
-            if (cachedData != null) {
-                // Cache HIT
-                searchResults = cachedData.results;
-                searchTimeSec = cachedData.searchTimeSec;
+            // Perform search based on type (convert 1-based to 0-based page)
+            if (isPhraseSearch) {
+                searchResults = searchWrapper.phraseSearch(searchQuery, page - 1, limit);
             } else {
-                // Cache MISS
-                long startTime = System.currentTimeMillis();
-
-                // Perform search based on type (convert 1-based to 0-based page)
-                if (isPhraseSearch) {
-                    searchResults = searchWrapper.phraseSearch(searchQuery, page - 1, limit);
-                } else {
-                    searchResults = searchWrapper.search(searchQuery, page - 1, limit);
-                }
-
-                searchTimeSec = (System.currentTimeMillis() - startTime) / 1000.0;
-
-                // Store in cache
-                searchCache.put(searchQuery, new CachedSearchResult(searchResults, searchTimeSec));
+                searchResults = searchWrapper.search(searchQuery, page - 1, limit);
             }
+
+            searchTimeSec = (System.currentTimeMillis() - startTime) / 1000.0;
             
             // Tokenize the original full query for metadata
             String[] tokens = searchWrapper.tokenize(query);
