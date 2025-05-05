@@ -49,9 +49,9 @@ public class SearchWrapper {
     public SearchWrapper() {
         try {
             // MongoDB configuration - get from environment or use default
-            this.mongoConnectionString =  "mongodb+srv://admin:admin@cluster0.wtcajo8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-            this.databaseName = "search_engine"; // <-- Updated database name
-            this.collectionName = "inverted_index";
+            this.mongoConnectionString = nadry.Config.DATABASE_URL;
+            this.databaseName = nadry.Config.DATABASE_NAME;
+            this.collectionName =  nadry.Config.INVERTED_INDEX_COLLECTION_NAME;
             
             StopWordFilter stopWordFilter = new StopWordFilter();
             this.tokenizer = new Tokenizer(stopWordFilter);

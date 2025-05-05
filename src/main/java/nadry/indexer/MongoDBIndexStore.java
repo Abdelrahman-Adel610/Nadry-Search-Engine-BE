@@ -117,12 +117,12 @@ public class MongoDBIndexStore {
                 );
 
                 if (result.getMatchedCount() > 0) {
-                    System.out.println("Updated document " + docId + " with score " + score);
+                    // System.out.println("Updated document " + docId + " with score " + score);
                 } else {
                     System.out.println("No document found with ID: " + docId);
                 }
             }
-            System.out.println("Finished updating scores.");
+            // System.out.println("Finished updating scores.");
         } catch (Exception e) {
             System.err.println("MongoDB error while updating scores: " + e.getMessage());
             e.printStackTrace();
@@ -484,6 +484,7 @@ public class MongoDBIndexStore {
                 details.put("url", doc.getString("url"));
                 details.put("title", doc.getString("title"));
                 details.put("description", doc.getString("description"));
+                details.put("content", doc.getString("content"));
                 // Add other fields if needed
                 results.put(docId, details);
             }
