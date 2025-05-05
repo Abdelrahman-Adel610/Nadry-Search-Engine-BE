@@ -77,18 +77,23 @@ public class SearchWrapper {
     }
     
     /**
-     * Search the index using the tokenized query terms with multithreading
+     * Search the index using the tokenized query terms with multithreading and pagination
      * 
      * @param query The search query to tokenize and search
-     * @return List of search results with document URLs and relevance scores
+     * @param page The page number (0-based) to return
+     * @param pageSize The number of results per page
+     * @return Map containing the paginated results and metadata including total count
      */
-    public List<Map<String, Object>> search(String query) {
+    public Map<String, Object> searchWithMetadata(String query, int page, int pageSize) {
         try {
             // Tokenize the query
             String[] queryTokens = tokenize(query);
             
             if (queryTokens.length == 0) {
-                return Collections.emptyList();
+                Map<String, Object> emptyResponse = new HashMap<>();
+                emptyResponse.put("results", Collections.emptyList());
+                emptyResponse.put("totalResults", 0);
+                return emptyResponse;
             }
             
             // Create a thread pool for parallel processing
@@ -150,10 +155,26 @@ public class SearchWrapper {
                 List<Map<String, Object>> rankedResults = rankAndFormatResults(
                     queryTokens, docTermFrequencies, docUrls);
                 
-               
-                enrichResultsWithDocumentDetails(rankedResults);
-
-                return rankedResults;
+                // Store total count before pagination
+                int totalResults = rankedResults.size();
+                
+                // Calculate total pages
+                int totalPages = (int) Math.ceil((double) totalResults / pageSize);
+                
+                // Apply pagination to the results
+                List<Map<String, Object>> paginatedResults = paginateResults(rankedResults, page, pageSize);
+                
+                // Only enrich the paginated results to reduce database queries
+                enrichResultsWithDocumentDetails(paginatedResults);
+                
+                // Create response with both results and metadata
+                Map<String, Object> response = new HashMap<>();
+                response.put("results", paginatedResults);
+                response.put("totalResults", totalResults);
+                response.put("totalPages", totalPages);
+                response.put("currentPage", page);
+                
+                return response;
             } finally {
                 // Properly shutdown the executor service
                 executor.shutdown();
@@ -168,33 +189,82 @@ public class SearchWrapper {
             }
         } catch (Exception e) {
             e.printStackTrace();
-            return Collections.emptyList();
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("results", Collections.emptyList());
+            errorResponse.put("totalResults", 0);
+            errorResponse.put("error", e.getMessage());
+            return errorResponse;
         }
     }
-
+    
     /**
-     * Search the index for an exact phrase match.
+     * Search the index using the tokenized query terms with multithreading and pagination
+     * Returns a Map with results and pagination metadata
      * 
-     * @param phrase The exact phrase to search for.
-     * @return List of search results containing the phrase.
+     * @param query The search query to tokenize and search
+     * @param page The page number (0-based) to return
+     * @param pageSize The number of results per page
+     * @return Map containing search results and pagination metadata
      */
-    public List<Map<String, Object>> phraseSearch(String phrase) {
-        logger.info("Starting phrase search for: \"{}\"", phrase);
+    public Map<String, Object> search(String query, int page, int pageSize) {
+        return searchWithMetadata(query, page, pageSize);
+    }
+    
+    /**
+     * Original search method - for backward compatibility
+     * Uses default pagination (first page with 10 results) and returns Map with metadata
+     */
+    public Map<String, Object> search(String query) {
+        return search(query, 0, 10); // Default: first page with 10 results
+    }
+    
+    /**
+     * Compatibility method to support old code that expects List<Map<String, Object>> return type
+     */
+    public List<Map<String, Object>> searchAsList(String query, int page, int pageSize) {
+        Map<String, Object> response = search(query, page, pageSize);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) response.get("results");
+        return results != null ? results : Collections.emptyList();
+    }
+    
+    /**
+     * Original search method returning List - for backward compatibility
+     */
+    public List<Map<String, Object>> searchAsList(String query) {
+        return searchAsList(query, 0, 10);
+    }
+    
+    /**
+     * Search the index for an exact phrase match with pagination support.
+     * 
+     * @param phrase The exact phrase to search for
+     * @param page The page number (0-based) to return
+     * @param pageSize The number of results per page
+     * @return Map containing search results and pagination metadata
+     */
+    public Map<String, Object> phraseSearch(String phrase, int page, int pageSize) {
+        logger.info("Starting phrase search for: \"{}\" (page: {}, pageSize: {})", phrase, page, pageSize);
      
-        List<Map<String, Object>> results = new ArrayList<>();
+        // Initialize response map with default values
+        Map<String, Object> response = new HashMap<>();
+        response.put("results", Collections.emptyList());
+        response.put("totalResults", 0);
+        response.put("totalPages", 0);
+        response.put("currentPage", page);
         
-        //Phrase is Tokenized
+        // Phrase is Tokenized
         String[] phraseTokens = tokenize(phrase); 
-        //All the phrase parts are stopping words
+        // All the phrase parts are stopping words
         if (phraseTokens.length == 0) {
             logger.warn("Phrase tokenization resulted in zero valid processed tokens.");
-            return Collections.emptyList();
+            return response;
         }
 
         // If only one valid token remains, delegate to regular search
         if (phraseTokens.length == 1) {
             logger.info("Phrase has only one valid token after processing ('{}'), delegating to regular search.", phraseTokens[0]);
-            return search(phraseTokens[0]); // Search for the single processed token
+            return searchWithMetadata(phraseTokens[0], page, pageSize);
         }
 
         // Get postings for the *first processed* term
@@ -203,7 +273,7 @@ public class SearchWrapper {
         // if first term doesn't exist anyway return EMPTY LIST
         if (firstTermPostings.isEmpty()) {
             logger.info("No postings found for the first processed term: {}", phraseTokens[0]);
-            return Collections.emptyList();
+            return response;
         }
 
         // Map to store potential matches <DocId, List<PotentialMatch>>
@@ -301,14 +371,52 @@ public class SearchWrapper {
             
             // Use helper method to rank and format results
             logger.info("Ranking {} documents that match the phrase", matchedDocIds.size());
-            results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
+            List<Map<String, Object>> results = rankAndFormatResults(phraseTokens, docTermFrequencies, docUrls);
             
             // Enrich phrase search results with document details
             enrichResultsWithDocumentDetails(results);
+            
+            // Calculate pagination metadata
+            int totalResults = results.size();
+            int totalPages = (int) Math.ceil((double) totalResults / pageSize);
+            
+            // Apply pagination to get just the current page of results
+            List<Map<String, Object>> paginatedResults = paginateResults(results, page, pageSize);
+            
+            // Update response with results and metadata
+            response.put("results", paginatedResults);
+            response.put("totalResults", totalResults);
+            response.put("totalPages", totalPages);
+            response.put("currentPage", page);
         }
 
-        logger.info("Phrase search completed. Returning {} results.", results.size());
-        return results;
+        logger.info("Phrase search completed with {} total results", response.get("totalResults"));
+        return response;
+    }
+    
+    /**
+     * Original phraseSearch method - for backward compatibility
+     * Uses default pagination (first page with 10 results)
+     */
+    public Map<String, Object> phraseSearch(String phrase) {
+        return phraseSearch(phrase, 0, 10); // Default: first page with 10 results
+    }
+    
+    /**
+     * Compatibility method to support old code that expects List<Map<String, Object>> return type
+     */
+    public List<Map<String, Object>> phraseSearchAsList(String phrase, int page, int pageSize) {
+        Map<String, Object> response = phraseSearch(phrase, page, pageSize);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) response.get("results");
+        return results != null ? results : Collections.emptyList();
+    }
+    
+    /**
+     * Original phraseSearch method returning List - for backward compatibility
+     */
+    public List<Map<String, Object>> phraseSearchAsList(String phrase) {
+        return phraseSearchAsList(phrase, 0, 10);
     }
 
     /**
@@ -423,6 +531,36 @@ public class SearchWrapper {
         } catch (Exception e) {
             logger.error("Error enriching results with document details", e);
         }
+    }
+
+    /**
+     * Helper method to paginate search results
+     * 
+     * @param results The full list of results
+     * @param page The page number (0-based)
+     * @param pageSize The number of results per page
+     * @return A sublist containing only the requested page of results
+     */
+    private List<Map<String, Object>> paginateResults(List<Map<String, Object>> results, int page, int pageSize) {
+        // Validate inputs
+        if (page < 0) page = 0;
+        if (pageSize <= 0) pageSize = 10; // Default to 10 results per page (changed from 200)
+        
+        // Calculate start and end indices
+        int startIndex = page * pageSize;
+        int endIndex = Math.min(startIndex + pageSize, results.size());
+        
+        // Return empty list if startIndex is beyond available results
+        if (startIndex >= results.size()) {
+            logger.info("Requested page {} is beyond available results (total: {})", page, results.size());
+            return Collections.emptyList();
+        }
+        
+        List<Map<String, Object>> paginatedResults = results.subList(startIndex, endIndex);
+        logger.info("Returning {} results (page {}, items {}-{}), from total of {}", 
+                paginatedResults.size(), page, startIndex, endIndex-1, results.size());
+        
+        return paginatedResults;
     }
 
     // Helper class to track potential phrase matches

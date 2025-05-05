@@ -36,10 +36,10 @@ public class SearchController {
 
     // Inner class to hold cached data
     private static class CachedSearchResult {
-        final List<Map<String, Object>> results;
+        final Map<String, Object> results;
         final double searchTimeSec;
 
-        CachedSearchResult(List<Map<String, Object>> results, double searchTimeSec) {
+        CachedSearchResult(Map<String, Object> results, double searchTimeSec) {
             this.results = results;
             this.searchTimeSec = searchTimeSec;
         }
@@ -69,7 +69,7 @@ public class SearchController {
                 isPhraseSearch = true;
             }
             
-            List<Map<String, Object>> allResults;
+            Map<String, Object> searchResults;
             double searchTimeSec;
 
             // Check cache
@@ -77,7 +77,7 @@ public class SearchController {
 
             if (cachedData != null) {
                 // Cache HIT
-                allResults = cachedData.results;
+                searchResults = cachedData.results;
                 searchTimeSec = cachedData.searchTimeSec;
                 System.out.println("Cache HIT for query: \"" + searchQuery + "\". Using stored time: " + searchTimeSec + "s");
             } else {
@@ -87,36 +87,36 @@ public class SearchController {
 
                 // Perform search based on type
                 if (isPhraseSearch) {
-                    allResults = searchWrapper.phraseSearch(searchQuery);
+                    searchResults = searchWrapper.phraseSearch(searchQuery, page - 1, limit); // Convert 1-based to 0-based page
                 } else {
-                    allResults = searchWrapper.search(searchQuery);
+                    searchResults = searchWrapper.search(searchQuery, page - 1, limit); // Convert 1-based to 0-based page
                 }
 
                 searchTimeSec = (System.currentTimeMillis() - startTime) / 1000.0;
 
                 // Store in cache
-                searchCache.put(searchQuery, new CachedSearchResult(allResults, searchTimeSec));
+                searchCache.put(searchQuery, new CachedSearchResult(searchResults, searchTimeSec));
                 System.out.println("Stored results in cache for query: \"" + searchQuery + "\" with time: " + searchTimeSec + "s");
             }
 
-            // Paginate results (from cache or fresh search)
-            int startIndex = (page - 1) * limit;
-            int endIndex = Math.min(startIndex + limit, allResults.size());
+            // Get the results list from the response
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> resultsList = (List<Map<String, Object>>) searchResults.get("results");
             
-            List<Map<String, Object>> paginatedResults = 
-                startIndex < allResults.size() ? 
-                allResults.subList(startIndex, endIndex) : 
-                new ArrayList<>();
+            // Get metadata from the search results
+            int totalResults = ((Number) searchResults.getOrDefault("totalResults", 0)).intValue();
+            int totalPages = ((Number) searchResults.getOrDefault("totalPages", 0)).intValue();
+            int currentPage = ((Number) searchResults.getOrDefault("currentPage", 0)).intValue() + 1; // Convert 0-based to 1-based page
             
             // Tokenize the original full query for metadata
             String[] tokens = searchWrapper.tokenize(query);
             
             // Build response
             response.put("success", true);
-            response.put("data", paginatedResults);
-            response.put("totalPages", Math.ceil((double) allResults.size() / limit));
-            response.put("currentPage", page);
-            response.put("totalResults", allResults.size());
+            response.put("data", resultsList);
+            response.put("totalPages", totalPages);
+            response.put("currentPage", currentPage);
+            response.put("totalResults", totalResults);
             response.put("tokens", tokens);
             response.put("searchTimeSec", searchTimeSec); // Use cached or calculated time
             
